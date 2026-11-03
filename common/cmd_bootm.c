@@ -257,6 +257,10 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 #endif	/* __I386__ */
 	    {
 		printf ("Bad Magic Number,%08X \n",ntohl(hdr->ih_magic));
+#if defined(BOARD_AX1800)
+		/* AX1800: 固件损坏(LED 三短一长循环报错, 阻塞等待人工处理) */
+		{ extern void run_led_error_blink(void); run_led_error_blink(); }
+#endif
 #if defined (CFG_ENV_IS_IN_NAND)
 			addr += CFG_BLOCKSIZE;
 			if ((addr-CFG_FLASH_BASE) < 0x2000000) /* Suppose minimum NAND flash size 32MB */
@@ -284,6 +288,9 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 
 	if (crc32 (0, (char *)data, len) != checksum) {
 		puts ("Bad Header Checksum\n");
+#if defined(BOARD_AX1800)
+		{ extern void run_led_error_blink(void); run_led_error_blink(); }
+#endif
 		SHOW_BOOT_PROGRESS (-2);
 		return 1;
 	}
@@ -321,6 +328,9 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		puts ("   Verifying Checksum ... ");
 		if (crc32 (0, (char *)data, len) != ntohl(hdr->ih_dcrc)) {
 			printf ("Bad Data CRC\n");
+#if defined(BOARD_AX1800)
+			{ extern void run_led_error_blink(void); run_led_error_blink(); }
+#endif
 			SHOW_BOOT_PROGRESS (-3);
 			return 1;
 		}

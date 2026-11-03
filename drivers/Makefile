@@ -27,7 +27,7 @@ include $(TOPDIR)/config.mk
 
 LIB	= libdrivers.a
 
-OBJS	= rt2880_eth.o i2c_drv.o
+OBJS	= rt2880_eth.o i2c_drv.o gpio.o
 
 ifeq ($(RALINK_MDIO_ACCESS_FUN),ON)
 OBJS	+= mii_mgr.o

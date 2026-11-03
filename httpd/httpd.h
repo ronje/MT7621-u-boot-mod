@@ -48,6 +48,10 @@
 
 void httpd_init(void);
 void httpd_appcall(void);
+void HttpdHandler(void);
+/* 上传收尾超时兜底: post_done 后 3s 无最终 ACK 则强制开始升级
+ * (NetLoopHttpd 主循环周期调用, 见 httpd.c) */
+void httpd_upload_stall_check(void);
 
 /* UIP_APPCALL: the name of the application function. This function
  must return void and take no arguments (i.e., C type "void

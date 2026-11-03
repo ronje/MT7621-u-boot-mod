@@ -146,6 +146,68 @@ void env_crc_update (void)
 	//env_ptr->crc = crc32(0, env_ptr->data, ENV_SIZE);
 }
 
+#if defined(CFG_ENV_IS_IN_SPI)
+extern int spi_env_init(void);	/* common/env_spi.c */
+
+/* 环境条目完整性检查: 合法 env 为若干 "name=value\0" 可打印串 + 双'\0'结尾。
+ * 曾观测到坏数据覆写 env 且带合法 CRC(升级流程把 flash 内容覆进 env RAM
+ * 后又被 saveenv 存回) —— 双'\0'启发式会被垃圾骗过, 逐条目校验(可打印 +
+ * 必含'=')能把二进制垃圾判废。返回 1=内容完好。 */
+static int env_entries_sane(uchar *p)
+{
+	uchar *limit = p + ENV_SIZE;
+	uchar *s;
+
+	if (!p)
+		return 0;
+
+	for (s = p; s < limit; ) {
+		uchar *e;
+		int eq = 0;
+
+		if (s[0] == '\0')		/* 双'\0' = 正常结尾 */
+			return 1;
+
+		for (e = s; e < limit && *e != '\0'; e++) {
+			if (*e < 0x20 || *e > 0x7e)	/* 不可打印 = 垃圾 */
+				return 0;
+			if (*e == '=')
+				eq = 1;
+		}
+		if (e >= limit || !eq)		/* 扫到界仍无'\0' / 条目无'=' */
+			return 0;
+		s = e + 1;
+	}
+	return 0;				/* 扫满仍无结尾 */
+}
+
+/* AX1800 升级流程(httpd / 工厂式 TFTP 安装)写 env 前调用:
+ * 无条件从 flash 重载 env 并做两级自愈 ——
+ * 1) flash env CRC 坏(擦除后/写坏): 按启动期 env_relocate 同款语义用
+ *    default_environment 填充 env_ptr 并置 env_valid=1(直接调
+ *    spi_env_init 的话 env_valid=0, setenv 写进 default_environment
+ *    而 saveenv 存的是 env_ptr 垃圾, 写入必丢);
+ * 2) CRC 虽过但内容是垃圾: 逐条目校验, 不合格即判废回退默认。
+ * 返回后 env_ptr/env_addr/env_valid 三者一致, setenv+saveenv 操作
+ * 的是同一份干净数据。 */
+int env_reload_for_save(void)
+{
+	DECLARE_GLOBAL_DATA_PTR;
+
+	spi_env_init();
+
+	if (!gd->env_valid || !env_entries_sane((uchar *)gd->env_addr)) {
+		memset (env_ptr, 0, sizeof(env_t));
+		memcpy (env_ptr->data, default_environment, sizeof(default_environment));
+		env_crc_update ();
+		gd->env_valid = 1;
+	}
+
+	gd->env_addr = (ulong)&(env_ptr->data);
+	return 0;
+}
+#endif /* CFG_ENV_IS_IN_SPI */
+
 static uchar env_get_char_init (int index)
 {
 	DECLARE_GLOBAL_DATA_PTR;

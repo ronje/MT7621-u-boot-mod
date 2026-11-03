@@ -502,6 +502,12 @@ ifeq ($(MT7621_MP),y)
 CPPFLAGS += -DMT7621_MP
 endif
 
+# 单板选择 ax1800: 传递 -DBOARD_AX1800, 用于切换 GPIO/LED 映射
+# (reset=GPIO16 / hdog=GPIO14 / usbpower=GPIO13 / sysLed=GPIO17)
+ifeq ($(BOARD_AX1800),y)
+CPPFLAGS += -DBOARD_AX1800
+endif
+
 ifeq ($(RT3883_MP),y)
 CPPFLAGS += -DRT3883_MP
 endif

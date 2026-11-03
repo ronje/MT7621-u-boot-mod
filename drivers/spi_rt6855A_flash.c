@@ -3,13 +3,11 @@
 #include <rt_mmap.h>
 #include <configs/rt2880.h>
 #include <malloc.h>
-#ifdef OLED_1_3
-#include <oled.h>
-#endif
 #include "bbu_spiflash.h"
+#include <gpio.h>
 
 
-#if (CONFIG_COMMANDS & CFG_CMD_SPI) 
+#if (CONFIG_COMMANDS & CFG_CMD_SPI)
 
 /* Choose the SPI flash mode */
 #define BBU_MODE		// BBU SPI flash controller
@@ -58,8 +56,14 @@
 #define SR_BP0			4	/* Block protect 0 */
 #define SR_BP1			8	/* Block protect 1 */
 #define SR_BP2			0x10	/* Block protect 2 */
+#define SR_BP3			0x20	/* Block protect 3 (GD/普冉型 SR1 才有, W25Q64 无) */
+#define SR_BP4			0x40	/* Block protect 4 (GD/普冉型 SR1 才有, W25Q64 无) */
 #define SR_EPE			0x20	/* Erase/Program error */
 #define SR_SRWD			0x80	/* SR write protect */
+
+/* S15~S8 (35H 读, 01H 两字节 WRSR 写) */
+#define SR2_CMP			0x40	/* S14: 保护范围取反, 配合 BP=0 即整片保护 */
+#define SR2_SRP1		0x01	/* S8: OTP, 置位后状态寄存器永久锁定 */
 
 #define OPCODE_BRRD		0x16
 #define OPCODE_BRWR		0x17
@@ -68,6 +72,10 @@
 /*#define ra_dbg(args...) do { if (1) printf(args); } while(0)*/
 
 #define SPI_FIFO_SIZE 16
+
+#if defined (MT7628_ASIC_BOARD) || defined (MT7628_FPGA_BOARD)
+// #define COMMAND_MODE // define this for SPI flash command/user mode support
+#endif
 
 #define ADDR_4B			// if all instruction use 4B address mode
 //#define RD_MODE_FAST		// use Fast Read instead of normal Read
@@ -218,7 +226,7 @@ void spic_init(void)
 #else
 	ra_outl(RT2880_SPI0_CFG_REG, SPICFG_MSBFIRST | SPICFG_TXCLKEDGE_FALLING | SPICFG_SPICLK_DIV8 | SPICFG_SPICLKPOL);
 #endif
-								
+
 	// set idle state
 	ra_outl(RT2880_SPI0_CTL_REG, SPICTL_HIZSDO | SPICTL_SPIENA_HIGH);
 
@@ -242,40 +250,61 @@ struct chip_info {
 	unsigned long	sector_size;
 	unsigned int	n_sectors;
 	char		addr4b;
+	char		buf_prog;	/* 支持 9CH/9DH buffer 编程(P25Q64SH 独有), 0=常规 PP */
 };
 struct chip_info *spi_chip_info = NULL;
 
 static struct chip_info chips_data [] = {
 	/* REVISIT: fill in JEDEC ids, for parts that have them */
-	{ "AT25DF321",		0x1f, 0x47000000, 64 * 1024, 64,  0 },
-	{ "AT26DF161",		0x1f, 0x46000000, 64 * 1024, 32,  0 },
-	{ "FL016AIF",		0x01, 0x02140000, 64 * 1024, 32,  0 },
-	{ "FL064AIF",		0x01, 0x02160000, 64 * 1024, 128, 0 },
-	{ "MX25L1605D",		0xc2, 0x2015c220, 64 * 1024, 32,  0 },
-	{ "MX25L3205D",		0xc2, 0x2016c220, 64 * 1024, 64,  0 },
-	{ "MX25L6405D",		0xc2, 0x2017c220, 64 * 1024, 128, 0 },
-	{ "MX25L12805D",	0xc2, 0x2018c220, 64 * 1024, 256, 0 },
-	{ "MX25L25635E",	0xc2, 0x2019c220, 64 * 1024, 512, 1 },
-	{ "S25FL256S",		0x01, 0x02194D01, 64 * 1024, 512, 1 },
-	{ "S25FL128P",		0x01, 0x20180301, 64 * 1024, 256, 0 },
-	{ "S25FL164K",		0x01, 0x40170140, 64 * 1024, 128, 0 },
-	{ "S25FL132K",		0x01, 0x40160140, 64 * 1024, 64, 0 },
-	{ "S25FL129P",		0x01, 0x20184D01, 64 * 1024, 256, 0 },
-	{ "S25FL032P",		0x01, 0x02154D00, 64 * 1024, 64,  0 },
-	{ "S25FL064P",		0x01, 0x02164D00, 64 * 1024, 128, 0 },
-	{ "F25L64QA",           0x8c, 0x41178c41, 64 * 1024, 128, 0 }, //ESMT
+	{ "AT25DF321",          0x1f, 0x47000000, 64 * 1024, 64,  0 },
+	{ "AT26DF161",          0x1f, 0x46000000, 64 * 1024, 32,  0 },
+	{ "FL016AIF",           0x01, 0x02140000, 64 * 1024, 32,  0 },
+	{ "FL064AIF",           0x01, 0x02160000, 64 * 1024, 128, 0 },
+	{ "MX25L1605D",         0xc2, 0x2015c220, 64 * 1024, 32,  0 },//MX25L1606E
+	{ "MX25L3205D",         0xc2, 0x2016c220, 64 * 1024, 64,  0 },//MX25L3233F
+	{ "MX25L6405D",         0xc2, 0x2017c220, 64 * 1024, 128, 0 },//MX25L6433F
+	{ "MX25L12805D",        0xc2, 0x2018c220, 64 * 1024, 256, 0 },//MX25L12835F
+	{ "MX25L25635E",        0xc2, 0x2019c220, 64 * 1024, 512, 1 },//MX25L25635F
+	{ "MX25L51245G",        0xc2, 0x201ac220, 64 * 1024, 1024, 1 },
+	{ "S25FL256S",          0x01, 0x02194D01, 64 * 1024, 512, 1 },
+	{ "S25FL128P",          0x01, 0x20180301, 64 * 1024, 256, 0 },
+	{ "S25FL129P",          0x01, 0x20184D01, 64 * 1024, 256, 0 },
+	{ "S25FL164K",          0x01, 0x40170140, 64 * 1024, 128, 0 },
+	{ "S25FL132K",          0x01, 0x40160140, 64 * 1024, 64,  0 },
+	{ "S25FL032P",          0x01, 0x02154D00, 64 * 1024, 64,  0 },
+	{ "S25FL064P",          0x01, 0x02164D00, 64 * 1024, 128, 0 },
+	{ "S25FL116K",          0x01, 0x40150140, 64 * 1024, 32,  0 },
+	{ "F25L64QA",           0x8c, 0x41170000, 64 * 1024, 128, 0 }, //ESMT
 	{ "F25L32QA",           0x8c, 0x41168c41, 64 * 1024, 64,  0 }, //ESMT
-	{ "EN25F16",		0x1c, 0x31151c31, 64 * 1024, 32,  0 },
-	{ "EN25F32",		0x1c, 0x31161c31, 64 * 1024, 64,  0 },
-	{ "EN25Q32",            0x1c, 0x30161c30, 64 * 1024, 64,  0 },
-	{ "EN25F64",		0x1c, 0x20171c20, 64 * 1024, 128,  0 }, //EN25P64
-	{ "EN25Q64",		0x1c, 0x30171c30, 64 * 1024, 128,  0 },
-	{ "W25Q32BV",		0xef, 0x40160000, 64 * 1024, 64,  0 },
-	{ "W25Q64BV",		0xef, 0x40170000, 64 * 1024, 128,  0 }, //S25FL064K
-	{ "W25Q128BV",		0xef, 0x40180000, 64 * 1024, 256,  0 },
-	{ "GD25Q32B",		0xC8, 0x40160000, 64 * 1024, 64,  0 },
-	{ "GD25Q64B",		0xC8, 0x40170000, 64 * 1024, 128,  0 },
-	{ "GD25Q128C",		0xC8, 0x40180000, 64 * 1024, 256,  0 },
+	{ "EN25F16",            0x1c, 0x31151c31, 64 * 1024, 32,  0 },
+	{ "EN25Q32B",           0x1c, 0x30161c30, 64 * 1024, 64,  0 },
+	{ "EN25F32",            0x1c, 0x31161c31, 64 * 1024, 64,  0 },
+	{ "EN25F64",            0x1c, 0x20171c20, 64 * 1024, 128, 0 },  // EN25P64
+	{ "EN25Q64",            0x1c, 0x30171c30, 64 * 1024, 128, 0 },
+	{ "W25Q32BV",           0xef, 0x40160000, 64 * 1024, 64,  0 },//W25Q32FV
+	{ "W25X32VS",           0xef, 0x30160000, 64 * 1024, 64,  0 },
+	{ "W25Q64BV",           0xef, 0x40170000, 64 * 1024, 128, 0 }, //S25FL064K //W25Q64FV //W25Q64JV-IQ 同ID
+	{ "W25Q64JV-IM",        0xef, 0x70170000, 64 * 1024, 128, 0 },
+	{ "W25Q128BV",          0xef, 0x40180000, 64 * 1024, 256, 0 },//W25Q128FV //W25Q128JV-IQ 同ID
+	{ "W25Q128JV-IM",       0xef, 0x70180000, 64 * 1024, 256, 0 },
+	{ "W25Q256FV",          0xef, 0x40190000, 64 * 1024, 512, 1 }, //W25Q256JV-IQ 同ID
+	{ "W25Q256JV-IM",       0xef, 0x70190000, 64 * 1024, 512, 1 }, //AX1800 32MB NOR
+	{ "N25Q032A13ESE40F",   0x20, 0xba161000, 64 * 1024, 64,  0 },
+	{ "N25Q064A13ESE40F",   0x20, 0xba171000, 64 * 1024, 128, 0 },
+	{ "N25Q128A13ESE40F",   0x20, 0xba181000, 64 * 1024, 256, 0 },
+	{ "N25Q256A",       	0x20, 0xba191000, 64 * 1024, 512, 1 },
+	{ "MT25QL512AB",    	0x20, 0xba201044, 64 * 1024, 1024, 1 },
+	{ "GD25Q32B",           0xC8, 0x40160000, 64 * 1024, 64,  0 },
+	{ "GD25Q64B",           0xC8, 0x40170000, 64 * 1024, 128, 0 }, //GD25Q64C/E 同ID
+	{ "GD25Q128C",          0xC8, 0x40180000, 64 * 1024, 256, 0 }, //GD25Q128E 同ID
+	{ "GD25Q256C",          0xC8, 0x40190000, 64 * 1024, 512, 1 }, //GD25Q256E 同ID; AX1800 32MB NOR
+	{ "GD25LQ64",           0xC8, 0x60170000, 64 * 1024, 128, 0 }, //GD25LQ64C/E 宽压(1.65-3.6V)
+	{ "GD25LQ128",          0xC8, 0x60180000, 64 * 1024, 256, 0 }, //GD25LQ128C/E 宽压(1.65-3.6V)
+	{ "GD25LQ256",          0xC8, 0x60190000, 64 * 1024, 512, 1 }, //GD25LQ256C/E 宽压(1.65-3.6V)
+	{ "PY25Q64HA",          0x85, 0x20170000, 64 * 1024, 128, 0 }, //Puya 8MB(2.3-3.6V);老系列P25Q64H为0x6017
+	{ "P25Q64SH",           0x85, 0x60170000, 64 * 1024, 128, 0, 1 }, //Puya SH系列 8MB(2.3-3.6V);与老系列P25Q64H同ID(手册ID表);buf_prog=SH独有9CH/9DH
+	{ "PY25Q128HA",         0x85, 0x20180000, 64 * 1024, 256, 0 }, //Puya 16MB;老系列P25Q128H为0x6018
+
 };
 
 
@@ -286,8 +315,8 @@ static int raspi_cmd(const u8 cmd, const u32 addr, const u8 mode, u8 *buf, const
 	int retval = 0;
 
 	//printf("code = %x, addr = %x, mode = %x, buf = %x, size = %d, user = %d, flag = %x\n", cmd, addr, mode, buf, n_buf, user, flag);
-		
-	ra_or(RT2880_SPICFG_REG, (SPICFG_SPIENMODE | SPICFG_RXENVDIS));	
+
+	ra_or(RT2880_SPICFG_REG, (SPICFG_SPIENMODE | SPICFG_RXENVDIS));
 	ra_outl(RT2880_SPIDATA_REG, cmd);
 	ra_outl(RT2880_SPIMODE_REG, (mode << 24));
 #ifdef ADDR_4B
@@ -309,9 +338,9 @@ static int raspi_cmd(const u8 cmd, const u32 addr, const u8 mode, u8 *buf, const
 	}
 	else
 		ra_outl(RT2880_SPIUSER_REG, 0);
-	
+
 	ra_outl(RT2880_SPICTL_REG, SPICTL_START);
-	
+
 
 	if (flag & SPIC_READ_BYTES)
 	{
@@ -327,12 +356,12 @@ static int raspi_cmd(const u8 cmd, const u32 addr, const u8 mode, u8 *buf, const
 			do {
 				reg = (u32) (ra_inl(RT2880_SPIFIFOSTAT_REG) & 0xff);
 			} while (reg == 0);
-			
+
 			for (count = reg; count > 0; count--)
 			{
 				buf[retval++] = (u8) ra_inl(RT2880_SPIRXFIFO_REG);
 			}
-			
+
 		}
 	}
 	// write
@@ -351,7 +380,7 @@ static int raspi_cmd(const u8 cmd, const u32 addr, const u8 mode, u8 *buf, const
 			{
 				ra_outl(RT2880_SPITXFIFO_REG, buf[retval++]);
 			}
-			
+
 			do {
 				reg = (u32) ((ra_inl(RT2880_SPIFIFOSTAT_REG ) & 0xff00) >> 8);
 			} while (reg >= SPI_FIFO_SIZE);
@@ -361,13 +390,13 @@ static int raspi_cmd(const u8 cmd, const u32 addr, const u8 mode, u8 *buf, const
 				count = n_buf - retval;
 		}
 	}
-	
+
 	if (spic_busy_wait())
 	{
 		retval = -1;
 	}
 	ra_and(RT2880_SPICFG_REG, ~(SPICFG_SPIENMODE | SPICFG_RXENVDIS));
-	
+
 	return retval;
 }
 
@@ -390,7 +419,7 @@ static int raspi_set_quad()
 			retval = raspi_cmd(0x3e, 0, 0, &sr, 1, 0, SPIC_WRITE_BYTES);
 		}
 	}
-	else if (spi_chip_info->id == 0xc2) //MXIC, 
+	else if (spi_chip_info->id == 0xc2) //MXIC,
 	{
 		u8 sr;
 		retval = raspi_cmd(OPCODE_RDSR, 0, 0, &sr, 1, 0, SPIC_READ_BYTES);
@@ -418,7 +447,7 @@ static int raspi_set_quad()
 			//raspi_write_enable();
 			retval = raspi_cmd(OPCODE_WRSR, 0, 0, sr, 2, 0, SPIC_WRITE_BYTES);
 		}
-	}	
+	}
 
 err_end:
 	if (retval == -1)
@@ -429,6 +458,9 @@ err_end:
 #endif // COMMAND_MODE //
 
 #ifdef BBU_MODE
+/* 前置声明: gcc4.x 下先使用(BBU 段 W25Q256 清扩展地址寄存器)后定义
+ * (static inline) 会因隐式 extern 声明冲突报错, gcc3.4 容忍 */
+static int raspi_write_enable(void);
 #ifdef MORE_BUF_MODE
 static int bbu_mb_spic_trans(const u8 code, const u32 addr, u8 *buf, const size_t n_tx, const size_t n_rx, int flag)
 {
@@ -679,6 +711,34 @@ static int raspi_write_rg(u8 code, u8 *val)
 	return 0;
 }
 
+/*
+ * 两字节 WRSR(01H): 同时写 SR1(S7~S0) 和 S15~S8(含 CMP/QE/SRP1).
+ * 普冉/GD 型的 CMP(S14) 只能由此方式清除, 单字节 WRSR 或 31H 均写不到.
+ * 按 more-byte-mode 时序: 命令相位 8bit 操作码, 数据相位 16bit.
+ * 注意: CS# 必须恰好落在 16bit 数据边界(手册 10.7), 本函数固定发 2 字节.
+ */
+static int raspi_write_sr2(u8 sr1, u8 sr15_8)
+{
+#ifdef BBU_MODE
+	bbu_spic_busy_wait();
+	/* 命令相位: 仅操作码 01H (OPCODE[31:24], MOREBUF 命令位数=8) */
+	ra_outl(SPI_REG_OPCODE, (OPCODE_WRSR << 24));
+	/* 数据相位: DATA0[31:24]=SR1, DATA0[23:16]=S15~S8, MSB first */
+	ra_outl(SPI_REG_DATA0, ((u32)sr1 << 24) | ((u32)sr15_8 << 16));
+	ra_or(SPI_REG_MASTER, (1 << 2));	/* enable more byte mode */
+	ra_and(SPI_REG_MOREBUF, ~SPI_MBCTL_CMD_MASK);
+	ra_or(SPI_REG_MOREBUF, (8 << 24));
+	ra_and(SPI_REG_MOREBUF, ~SPI_MBCTL_TX_RX_CNT_MASK);
+	ra_or(SPI_REG_MOREBUF, (2 << 3));	/* tx 16 bit */
+	ra_or(SPI_REG_CTL, SPI_CTL_START);
+	bbu_spic_busy_wait();
+	ra_and(SPI_REG_MASTER, ~(1 << 2));
+	return 0;
+#else
+	return -1;
+#endif
+}
+
 #if 0
 static int raspi_clear_sr(void)
 {
@@ -720,7 +780,7 @@ static int raspi_read_scur(u8 *val)
 static int raspi_4byte_mode(int enable)
 {
 	ssize_t retval;
-	
+
 	raspi_wait_ready(1);
 
 	if (spi_chip_info->id == 0x1) // Spansion
@@ -737,7 +797,7 @@ static int raspi_4byte_mode(int enable)
 			br = 0x0;
 			ra_and(RT2880_SPICFG_REG, ~(SPICFG_ADDRMODE));
 		}
-    	
+
 #elif defined BBU_MODE
 		if (enable) {
 			ra_or(SPI_REG_CTL, 0x3 << 19);
@@ -798,6 +858,13 @@ static int raspi_4byte_mode(int enable)
 		}
 		retval = bbu_spic_trans(code, 0, NULL, 1, 0, 0);
 #endif
+		// for Winbond's W25Q256FV, need to clear extend address register
+		if ((!enable) && (spi_chip_info->id == 0xef))
+		{
+			u8 code = 0x0;
+			raspi_write_enable();
+			raspi_write_rg(0xc5, &code);
+		}
 		if (retval != 0) {
 			printf("%s: ret: %x\n", __func__, retval);
 			return -1;
@@ -840,19 +907,57 @@ static inline int raspi_write_disable(void)
  * Set all sectors (global) unprotected if they are protected.
  * Returns negative if error occurred.
  */
+static int sr_hw_locked = 0;	/* SR 写不进去(WP#低/SRP1 OTP), 告警一次 */
+
 static inline int raspi_unprotect(void)
 {
-	u8 sr = 0;
+	u8 sr = 0, sr2 = 0;
+
+	if (sr_hw_locked)
+		return 0;
 
 	if (raspi_read_sr(&sr) < 0) {
 		printf("%s: read_sr fail: %x\n", __func__, sr);
 		return -1;
 	}
+	raspi_read_rg(OPCODE_RCR, &sr2);	/* S15~S8: CMP=S14 QE=S9 SRP1=S8 */
 
-	if ((sr & (SR_BP0 | SR_BP1 | SR_BP2)) != 0) {
+	/* 普冉(PY25Q64HA/P25Q64SH)SR1 为 GD 型 5 位 BP: BP4=S6 BP3=S5 BP2~0=S4~2,
+	 * 另有 SRP0=S7; W25Q64 无 BP3/BP4. 带保护出货的普冉料常设 BP3/BP4,
+	 * 原来只判 0x1C 会漏掉 -> 后续 SE/PP 对保护区静默失败(GD/W25Q 默认
+	 * SR=0 故不受影响, 造成"换料就好"的假象). */
+	if (sr & (SR_SRWD | SR_BP4 | SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0)) {
 		sr = 0;
 		raspi_write_sr(&sr);
+		/* WRSR 自刷新周期 tW: typ 2ms / max 12ms(手册 5-3-1), 期间 WIP=1
+		 * 且结束时刻 WEL 被硬件清零; 不等 WIP 清零就发 SE/D8/PP 会被芯片
+		 * 直接拒绝 -> 擦除静默失败/编程丢数据 -> 写入校验异常 */
+		raspi_wait_ready(30);
+		raspi_write_enable();
+		raspi_read_sr(&sr);
+		if (sr & (SR_SRWD | SR_BP4 | SR_BP3 | SR_BP2 | SR_BP1 | SR_BP0)) {
+			/* WRSR 未生效: WP# 被拉低或 SRP 硬件保护, 继续重试只会每页
+			 * 白等 tW, 直接标记并告警 */
+			sr_hw_locked = 1;
+			printf("flash HW-protected (check WP#/SRP), write will fail! SR1:%02x\n", sr);
+			return -1;
+		}
 	}
+
+	/* CMP(S14)=1 时保护范围取反, BP=0 即整片写保护; 05H 读不到该位.
+	 * 限定普冉/GD(0x85/0xC8)处理, 保留 QE/SRP1 原值 */
+	if ((sr2 & SR2_CMP) && spi_chip_info &&
+	    ((spi_chip_info->id == 0x85) || (spi_chip_info->id == 0xC8))) {
+		raspi_write_enable();
+		raspi_write_sr2(0x00, sr2 & ~SR2_CMP);
+		raspi_wait_ready(30);
+		raspi_write_enable();
+	}
+
+	if (sr2 & SR2_SRP1)
+		printf("Warning: SRP1(OTP) set, SR locked permanently! SR2:%02x\n", sr2);
+
+	return 0;
 }
 
 /*
@@ -1004,17 +1109,20 @@ struct chip_info *chip_prob(void)
 
 unsigned long raspi_init(void)
 {
+	u8 sr = 0, sr2 = 0;
+
 	spic_init();
 	spi_chip_info = chip_prob();
+	/* 打印状态寄存器便于排查带保护出货的料(GD/普冉型 SR2 才有意义) */
+	raspi_read_sr(&sr);
+	raspi_read_rg(OPCODE_RCR, &sr2);
+	printf("flash SR1: %02x, SR2: %02x%s\n", sr, sr2,
+		(sr & 0x7c) ? "  <- PROTECTED" : "");
 	return spi_chip_info->sector_size * spi_chip_info->n_sectors;
 }
 
 int raspi_erase(unsigned int offs, int len)
 {
-#ifdef OLED_1_3
-    unsigned char update_erase[16];
-    unsigned int length = len;
-#endif
 	ra_dbg("%s: offs:%x len:%x\n", __func__, offs, len);
 
 	/* sanity checks */
@@ -1029,12 +1137,10 @@ int raspi_erase(unsigned int offs, int len)
 
 		offs += spi_chip_info->sector_size;
 		len -= spi_chip_info->sector_size;
-#ifdef OLED_1_3
-        OLED_Clear_page(4);
-        sprintf(update_erase,"Erase Flash:%d\%",(length-len)*100/length);
-        OLED_ShowString(0,4,update_erase);
-#endif
-        printf(".");
+		printf("e");
+
+		/* 升级擦 flash: run 灯快闪(不喂狗, 写入期间禁止 GPIO1 翻转) */
+		run_led_heartbeat(RUN_LED_BLINK_FAST);
 	}
 	printf("\n");
 
@@ -1093,7 +1199,7 @@ int raspi_read(char *buf, unsigned int from, int len)
 #ifdef RD_MODE_QIOR
 	code = OPCODE_QIOR;
 #endif
-	raspi_set_quad();		
+	raspi_set_quad();
 #elif defined (RD_MODE_DOR)
 	code = OPCODE_DOR;
 #elif defined (RD_MODE_DIOR)
@@ -1161,11 +1267,6 @@ int raspi_read(char *buf, unsigned int from, int len)
 
 int raspi_write(char *buf, unsigned int to, int len)
 {
-#ifdef OLED_1_3
-    unsigned char update_write[16];
-    unsigned int to_length = to;
-    int length = len;
-#endif
 	u32 page_offset, page_size;
 	int rc = 0, retlen = 0;
 #ifdef USER_MODE
@@ -1255,14 +1356,36 @@ int raspi_write(char *buf, unsigned int to, int len)
 
 		//{
 		//	u32 user;
-			
+
 		//	user = SPIUSR_QUAD | (SPIUSR_SINGLE << 3) | (SPIUSR_SINGLE << 6) | (SPIUSR_SINGLE << 9) | (SPIUSR_WRITE_DATA << 12) | (SPIUSR_NO_DUMMY << 14) | (SPIUSR_NO_MODE << 16) | (SPIUSR_THREE_BYTE_ADDR << 17) | (SPIUSR_ONE_INSTRU << 20) | (1 << 21);
 		//	rc = raspi_cmd(OPCODE_QPP, to, 0, buf, page_size, user, (SPIC_WRITE_BYTES | SPIC_USER_MODE));
-			
+
 		//}
 		//printf("rc = %d\n", rc);
-		
+
 #elif defined BBU_MODE
+		/* P25Q64SH buffer 编程: 9CH 装 SRAM buffer(纯 SPI 传输, 无 tPP
+		 * 等待), 9DH 整页一次编程. 常规路径每 256B 页被 BBU more-buf 的
+		 * 32B/CS# 上限拆成 8 笔 PP, 每笔一个 tPP(SH typ 1.6ms, 为 HA/GD
+		 * 的 3 倍), 8 倍放大后 ~1-2s/64KB; buffer 路径每页只付 1 次 tPP.
+		 * 仅整页走此路径: 9DH 编程整个 256B buffer, 非整页时装填不到的
+		 * 残值字节会把 1 拉成 0, 首/尾非整页仍走常规 PP.
+		 * 9CH/9DH 为 SH 独有(同 ID 老 P25Q64H 无此命令), 由 buf_prog 门控 */
+		if (spi_chip_info->buf_prog && page_size == FLASH_PAGESIZE) {
+			int boff = 0;
+			do {
+				more = 32;
+				if (page_size - boff < more)
+					more = page_size - boff;
+				bbu_mb_spic_trans(STM_OP_BUF_WRITE, boff, buf + boff, more, 0, SPIC_WRITE_BYTES);
+				boff += more;
+			} while (boff < page_size);
+			raspi_write_enable();
+			bbu_spic_trans(STM_OP_BUF_PPROG, to, NULL, 4, 0, 0);
+			raspi_wait_ready(100);
+			retlen += page_size;
+		}
+		else {
 		wrto = to;
 		wrlen = page_size;
 		wrbuf = buf;
@@ -1298,19 +1421,20 @@ int raspi_write(char *buf, unsigned int to, int len)
 				raspi_write_enable();
 			}
 		} while (wrlen > 0);
+		}
 #endif
 
 		//printf("%s:: to:%x page_size:%x ret:%x\n", __func__, to, page_size, rc);
-		if ((retlen & 0xffff) == 0){
-			printf(".");
-#ifdef OLED_1_3
-            OLED_Clear_page(6);
-            sprintf(update_write,"Write Flash:%d\%",(length-len)*100/length);
-            OLED_ShowString(0,6,update_write);
-#endif
-        
-        
-        }
+		if ((retlen & 0xffff) == 0) {
+			static int w_led = 0;
+			printf("w");
+			/* W 段 LED: 每个符号(64KB)直接翻转一次, ~2.5Hz, 与 TFTP 下载
+			 * 段观感一致。不经过 run_led_heartbeat —— 实测 heartbeat 在
+			 * 本函数(密集 page 循环)内不可靠(常亮), 而 E/V 段正常;
+			 * 直接寄存器写不受防抖/时基影响, 必定产生电平变化。 */
+			w_led = !w_led;
+			mtk_set_gpio_pin(RUN_LED, w_led);
+		}
 
 		if (rc > 0) {
 			retlen += rc;
@@ -1324,12 +1448,11 @@ int raspi_write(char *buf, unsigned int to, int len)
 		len -= page_size;
 		to += page_size;
 		buf += page_size;
-    }
-#ifdef OLED_1_3
-    OLED_Clear_page(6);
-    sprintf(update_write,"Frite Flash:%d\%",100);
-     OLED_ShowString(0,6,update_write);
-#endif
+
+		/* W 段 LED 翻转在上面 printf("W") 处(每 64KB 直接翻转);
+		 * 此处不再调 heartbeat —— 实测其在本函数密集循环内失效(常亮),
+		 * 且与 W 符号翻转两个源不同相位叠加会破坏节奏观感 */
+	}
 
 	raspi_wait_ready(100);
 	printf("\n");
@@ -1346,6 +1469,8 @@ int raspi_erase_write(char *buf, unsigned int offs, int count)
 	int blocksize = spi_chip_info->sector_size;
 	int blockmask = blocksize - 1;
 
+	/* 进度符号分阶段: E=擦(sector) W=写(64KB) V=校验(64KB);
+	 * 对齐路径三段各打标签, 非对齐首/尾块为逐块 E-W-V 交错 */
 	ra_dbg("%s: offs:%x, count:%x\n", __func__, offs, count);
 
 	if (count > (spi_chip_info->sector_size * spi_chip_info->n_sectors) -
@@ -1358,12 +1483,15 @@ int raspi_erase_write(char *buf, unsigned int offs, int count)
 
 	while (count > 0) {
 #define BLOCK_ALIGNE(a) (((a) & blockmask))
+		/* 升级擦写全程 run 灯快闪; 喂狗只在 E/W/V 阶段切换点(见 else 分支) */
+		run_led_heartbeat(RUN_LED_BLINK_FAST);
+
 		if (BLOCK_ALIGNE(offs) || (count < blocksize)) {
 			char *block;
 			unsigned int piece, blockaddr;
 			int piece_size;
 			char *temp;
-		
+
 			block = malloc(blocksize);
 			if (!block)
 				return -1;
@@ -1394,24 +1522,24 @@ int raspi_erase_write(char *buf, unsigned int offs, int count)
 				return -4;
 			}
 #ifdef RALINK_SPI_UPGRADE_CHECK
-			if (raspi_read(temp, blockaddr, blocksize) != blocksize) {
-				free(block);
-				free(temp);
-				return -2;
-			}
+		if (raspi_read(temp, blockaddr, blocksize) != blocksize) {
+			free(block);
+			free(temp);
+			return -2;
+		}
 
 
-			if(memcmp(block, temp, blocksize) == 0)
-			{    
-			   // printf("block write ok!\n\r");
-			}
-			else
-			{
-				printf("block write incorrect!\n\r");
-				free(block);
-				free(temp);
-				return -2;
-			}
+		if(memcmp(block, temp, blocksize) == 0)
+		{
+			printf("v");	/* 比对通过才打 V(与对齐路径一致) */
+		}
+		else
+		{
+			printf("block write incorrect!\n\r");
+			free(block);
+			free(temp);
+			return -2;
+		}
 #endif
                         free(temp);
 			free(block);
@@ -1428,11 +1556,15 @@ int raspi_erase_write(char *buf, unsigned int offs, int count)
 			if (!temp)
 				return -1;
 
+			printf("[erase]");
+			wdt_gpio_kick();	/* 阶段切换点(非 SPI 事务中)喂狗: 全程切成 E/W/V 三段, 每段必 <2min */
 			if (raspi_erase(offs, aligned_size) != 0)
 			{
 				free(temp);
 				return -1;
 			}
+			printf("[write]");
+			wdt_gpio_kick();	/* 同上: E->W 切换点 */
 			if (raspi_write(buf, offs, aligned_size) != aligned_size)
 			{
 				free(temp);
@@ -1440,39 +1572,36 @@ int raspi_erase_write(char *buf, unsigned int offs, int count)
 			}
 
 #ifdef RALINK_SPI_UPGRADE_CHECK
-			for( i=0; i< (aligned_size/blocksize); i++)
+		printf("[verify]");
+		wdt_gpio_kick();	/* 同上: W->V 切换点 */
+		for( i=0; i< (aligned_size/blocksize); i++)
+		{
+			/* 写后校验逐块读回比对: run 灯快闪(不喂狗) */
+			run_led_heartbeat(RUN_LED_BLINK_FAST);
+			if (raspi_read(temp, offs+(i*blocksize), blocksize) != blocksize)
 			{
-				if (raspi_read(temp, offs+(i*blocksize), blocksize) != blocksize)
-				{
-					free(temp);
-					return -2;
-				}
-				if(memcmp(buf+(i*blocksize), temp, blocksize) == 0)
-				{
-				//	printf("blocksize write ok i=%d!\n\r", i);
-				}
-				else
-				{
-					printf("blocksize write incorrect block#=%d!\n\r",i);
-					free(temp);
-					return -2;
-				}
+				free(temp);
+				return -2;
 			}
+			if(memcmp(buf+(i*blocksize), temp, blocksize) == 0)
+			{
+				printf("v");
+			}
+			else
+			{
+				printf("blocksize write incorrect block#=%d!\n\r",i);
+				free(temp);
+				return -2;
+			}
+		}
 #endif
 			free(temp);
-	
+
 			buf += aligned_size;
 			offs += aligned_size;
 			count -= aligned_size;
 		}
 	}
-#ifdef OLED_1_3
-    OLED_Clear_page(2);
-    OLED_Clear_page(4);
-    OLED_Clear_page(6);
-    OLED_ShowString(0,2,"UPDATE FIREWARE");
-    OLED_ShowString(0,4,"    SUCCESS");
-#endif
 	printf("Done!\n");
 	return 0;
 }
@@ -1480,6 +1609,7 @@ int raspi_erase_write(char *buf, unsigned int offs, int count)
 
 extern ulong NetBootFileXferSize;
 
+#if 0 /* Delete by kyson<luoweilong@gl-inet.com> */
 #ifdef RALINK_CMDLINE
 int do_mem_cp(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
@@ -1501,7 +1631,7 @@ int do_mem_cp(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		printf ("Usage:\n%s\n", cmdtp->usage);
 		return 1;
 	}
-	
+
 	raspi_write((char *)addr, dest, count);
 	return 0;
 }
@@ -1523,7 +1653,7 @@ int do_flerase (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	}
 
 	size = spi_chip_info->sector_size * spi_chip_info->n_sectors;
-	if (strcmp(argv[1], "linux") == 0) 
+	if (strcmp(argv[1], "linux") == 0)
 	{
 		printf("\n Erase linux kernel block !!\n");
 		printf("From 0x%X length 0x%X\n", CFG_KERN_ADDR - CFG_FLASH_BASE,
@@ -1533,7 +1663,7 @@ int do_flerase (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 				size - (CFG_BOOTLOADER_SIZE + CFG_CONFIG_SIZE + CFG_FACTORY_SIZE));
 		return rcode;
 	}
-	else if (strcmp(argv[1], "uboot") == 0) 
+	else if (strcmp(argv[1], "uboot") == 0)
 	{
 		printf("\n Erase u-boot block !!\n");
 		printf("From 0x%X length 0x%X\n", 0, CFG_BOOTLOADER_SIZE);
@@ -1559,7 +1689,7 @@ U_BOOT_CMD(
 	"erase linux\n    - erase linux kernel block\n"
 );
 
-#define SPI_FLASH_DBG_CMD 
+#define SPI_FLASH_DBG_CMD
 #ifdef SPI_FLASH_DBG_CMD
 int ralink_spi_command(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
@@ -1664,4 +1794,484 @@ U_BOOT_CMD(
 );
 #endif
 #endif // RALINK_CMDLINE //
+#endif /* Delete end */
+
+// #if (CONFIG_COMMANDS & CFG_CMD_RUN) /* CFG_CMD_RUN start */
+#if 1 /* Add by kyson<luoweilong@gl-inet.com> */
+extern int TftpdownloadStatus;
+int do_flerase (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	int rcode, size, len_used = 0;
+	ulong addr_first, addr_len;
+
+	if(argc < 2){
+#ifdef CFG_LONGHELP
+		if(cmdtp->help != NULL){
+			printf("Usage:%s %s\n", cmdtp->name, cmdtp->help);
+		} else {
+			printf("Usage:%s %s\n", cmdtp->name, cmdtp->usage);
+		}
+#else
+		printf("Usage:%s %s\n", cmdtp->name, cmdtp->usage);
+#endif
+		return(1);
+	}
+
+	size = (spi_chip_info->sector_size) * (spi_chip_info->n_sectors);
+
+	if (!strcmp(argv[1], "linux")) {
+
+		printf("**************************\n");
+		printf("Erase linux kernel block ! ! !\n");
+		printf("Erase start:0x%08x\n", CFG_KERN_ADDR - CFG_FLASH_BASE + 0xbc000000);
+		printf("Erase len  :0x%08x\n", size - (CFG_BOOTLOADER_SIZE + CFG_CONFIG_SIZE + CFG_FACTORY_SIZE));
+		printf("Erase end  :0x%08x\n", CFG_KERN_ADDR - CFG_FLASH_BASE + 0xbc000000 + size - (CFG_BOOTLOADER_SIZE + CFG_CONFIG_SIZE + CFG_FACTORY_SIZE));
+		printf("**************************\n");
+
+		raspi_unprotect();
+		rcode = raspi_erase(CFG_KERN_ADDR - CFG_FLASH_BASE,
+				size - (CFG_BOOTLOADER_SIZE + CFG_CONFIG_SIZE + CFG_FACTORY_SIZE));
+		return rcode;
+	} else if (!strcmp(argv[1], "uboot")) {
+
+		printf("**************************\n");
+		printf("Erase u-boot block ! ! !\n");
+		printf("Erase start:0x%08x\n", 0 + 0xbc000000);
+		printf("Erase len  :0x%08x\n", CFG_BOOTLOADER_SIZE + CFG_CONFIG_SIZE);
+		printf("Erase end  :0x%08x\n",0+0xbc000000 + CFG_BOOTLOADER_SIZE + CFG_CONFIG_SIZE);
+		printf("**************************\n");
+
+		raspi_unprotect();
+		rcode = raspi_erase(0, CFG_BOOTLOADER_SIZE + CFG_CONFIG_SIZE);
+		return rcode;
+	} else if (!strcmp(argv[1], "all")) {
+
+		printf("**************************\n");
+		printf("Erase all block ! ! !\n");
+		printf("Erase start:0x%08x\n", 0+0xbc000000);
+		printf("Erase len  :0x%08x\n", size);
+		printf("Erase end  :0x%08x\n", 0+0xbc000000+size);
+		printf("**************************\n");
+
+		raspi_unprotect();
+		rcode = raspi_erase(0, size);
+		return rcode;
+	}
+
+	/*
+	 * check erase command format
+	 * if the arg[2] have plus sign,use start address + len
+	 * if the arg[2] don't have plus sign,use start address + end address
+	 */
+	if(argv[2] && (*argv[2] == '+')){
+		len_used = 1;
+		++argv[2];
+	}
+
+	addr_first = simple_strtoul(argv[1], NULL, 16);
+	addr_len  = simple_strtoul(argv[2], NULL, 16);
+
+	if((addr_first < 0xbc000000) ||(addr_first > 0xbcffffff)) {
+		printf("Erase start address:0x%08x\n", addr_first);
+		printf("err:you erase start address must at 0xbc000000~0xbcffffff\n");
+		return -1;
+	}
+
+	if(len_used) {/* use start address + len */
+		if(addr_len > 0x1000000) {
+			printf("err:you erase length over flash length\n");
+			return -1;
+		}
+	} else {/* use start address + end address */
+		if((addr_len < 0xbc000000) || (addr_len > 0xbcffffff)) {
+			printf("err:you erase end address must at 0xbc000000~0xbcffffff\n");
+			return -1;
+		}
+		if(addr_first > addr_len) {
+			printf("err:the end address must  greater than start address\n");
+			return -1;
+		}
+		addr_len=addr_len-addr_first;
+	}
+
+	printf("**************************\n");
+	printf("Erase start:0x%08x\n",addr_first);
+	printf("Erase len  :0x%08x\n", addr_len);
+	printf("Erase end  :0x%08x\n", addr_first+addr_len);
+	printf("**************************\n");
+	raspi_unprotect();
+	rcode = raspi_erase((addr_first-0xbc000000), addr_len);
+	return rcode;
+}
+
+U_BOOT_CMD(
+	erase,	3,	1,	do_flerase,
+	"erase   - erase SPI FLASH memory\n",
+	"erase uboot\n"
+	"\t- erase uboot block\n\n"
+
+	"erase linux\n"
+	"\t- erase linux kernel block\n\n"
+
+	"erase all\n"
+	"\t- erase all FLASH banks\n\n"
+
+	"erase start end\n"
+	"\t- erase FLASH from addr 'start' to addr 'end'\n\n"
+
+	"erase start +len\n"
+	"\t- erase FLASH from addr 'start' to the end of addr 'start'+'len'-1\n\n"
+);
+
+int do_mem_cp(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	unsigned int addr = 0, dest = 0;
+	unsigned int count = 0;
+	int ret = 0;
+
+	addr = CFG_LOAD_ADDR;
+	count = (unsigned int)NetBootFileXferSize;
+	if((argc != 2) && (argc != 4) ){
+#ifdef CFG_LONGHELP
+		if(cmdtp->help != NULL){
+			printf("Usage:\n%s %s\n", cmdtp->name, cmdtp->help);
+		} else {
+			printf("Usage:\n%s %s\n", cmdtp->name, cmdtp->usage);
+		}
+#else
+		printf("Usage:\n%s %s\n", cmdtp->name, cmdtp->usage);
+#endif
+		return(1);
+	}
+
+	if (!strncmp(argv[1], "linux", 9)) {
+		dest = CFG_KERN_ADDR - CFG_FLASH_BASE;
+	} else if (!strncmp(argv[1], "uboot", 9)) {
+		dest = 0;
+	} else if (!strncmp(argv[1], "all", 9)) {
+		dest = 0;
+	}
+
+	if(argc == 4){
+		addr  = simple_strtoul(argv[1], NULL, 16);
+		dest  = simple_strtoul(argv[2], NULL, 16);
+		dest = dest - 0xbc000000;
+		count = simple_strtoul(argv[3], NULL, 16);
+
+		if(count == 0){
+			puts("## Error: zero length?\n");
+			return(1);
+		}
+	}
+
+	printf("cp from src:0x%08x\n",addr);
+	printf("cp len     :0x%08x\n", count);
+	printf("cp to dest :0x%08x\n",dest+0xbc000000);
+
+	ret = raspi_write((char *)addr, dest, count);
+	if (ret < 0) {
+		printf("%s: raspi_write error!\n", __func__);
+		return -1;
+	}
+
+	return 0;
+}
+
+U_BOOT_CMD(
+	cp,	4,	0,	do_mem_cp,
+	"cp      - memory copy\n",
+	"cp uboot\n"
+	"\t - copy uboot block(uboot download at 0x80100000)\n\n"
+
+	"cp linux\n    "
+	"\t - copy linux block(linux download at 0x80100000)\n\n"
+
+	"cp all\n"
+	"\t - copy all image block(image download at 0x80100000)\n\n"
+
+	"cp src_addr dest_addr len\n"
+	"\t - copy from src_addr to dest_addr, length is len\n\n"
+);
+
+int do_cp2ram(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	unsigned int addr, dest;
+	int count;
+
+	if(argc != 4) {
+#ifdef CFG_LONGHELP
+		if(cmdtp->help != NULL){
+			printf("Usage:\n%s %s\n", cmdtp->name, cmdtp->help);
+		} else {
+			printf("Usage:\n%s %s\n", cmdtp->name, cmdtp->usage);
+		}
+#else
+		printf("Usage:\n%s %s\n", cmdtp->name, cmdtp->usage);
+#endif
+		return(1);
+	}
+
+	if(argc == 4){
+		addr  = simple_strtoul(argv[1], NULL, 16);
+		dest  = simple_strtoul(argv[2], NULL, 16);
+		count = simple_strtoul(argv[3], NULL, 16);
+
+		if(count == 0){
+		puts("## Error: zero length?\n");
+		return(1);
+		}
+	}
+
+	cp_flash_to_ram(addr, dest, count);
+
+	return 0;
+}
+
+U_BOOT_CMD(
+	cp2ram,	4,	0,	do_cp2ram,
+	"cp2ram      - copy flash data to memery\n",
+
+	"cp2ram src_addr dest_addr len\n"
+	"\t - copy from src_addr to dest_addr, length is len\n\n"
+);
+
+int cp_flash_to_ram(unsigned int *flash_addr, unsigned int *ram_addr, unsigned int len)
+{
+	unsigned int i;
+
+	for (i = 0; i < len; i++) {
+		*ram_addr = *flash_addr;
+		ram_addr++;
+		flash_addr++;
+	}
+
+	return 0;
+}
+
+/*
+ * copy 0x80044000 mac to 0x80040004
+ * copy 0x80044008 mac to 0x80048004
+ */
+copy_mac()
+{
+	volatile unsigned   int   *mac_first_sour_0=(volatile unsigned int *)0x80044000;
+	volatile unsigned   int   *mac_first_sour_1=(volatile unsigned int *)0x80044004;
+	volatile unsigned   int   *mac_second_sour_0=(volatile unsigned int *)0x80044008;
+	volatile unsigned   int   *mac_second_sour_1=(volatile unsigned int *)0x8004400c;
+
+	volatile unsigned   int   *mac_first_dest_0=(volatile unsigned int *)0x80040004;
+	volatile unsigned   int   *mac_first_dest_1=(volatile unsigned int *)0x80040008;
+	volatile unsigned   int   *mac_second_dest_0=(volatile unsigned int *)0x80048004;
+	volatile unsigned   int   *mac_second_dest_1=(volatile unsigned int *)0x80048008;
+
+	*mac_first_dest_0 = (*mac_first_sour_0);
+	*mac_first_dest_1 = (*mac_first_sour_1);
+	*mac_second_dest_0 = (*mac_second_sour_0);
+	*mac_second_dest_1 = (*mac_second_sour_1);
+}
+
+copy_modify_mac()
+{
+	volatile unsigned int *mac1_1_to_4 = (volatile unsigned int *)0x80044000;
+	volatile unsigned char *mac1_5 = (volatile unsigned char *)0x80044004;
+	volatile unsigned char *mac1_6 = (volatile unsigned char *)0x80044005;
+
+	volatile unsigned int *mac2_1_to_4 = (volatile unsigned int *)0x80044008;
+	volatile unsigned char *mac2_5 = (volatile unsigned char *)0x8004400c;
+	volatile unsigned char *mac2_6 = (volatile unsigned char *)0x8004400d;
+
+	*mac2_1_to_4 = *mac1_1_to_4;
+	*mac2_6 = *mac1_6;
+	*mac2_5 = *mac1_5 + 0x10;
+}
+
+int do_run(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	char cmd[128] = {0};
+
+	if (argc < 2) {
+#ifdef CFG_LONGHELP
+		if (cmdtp->help != NULL) {
+			printf("Usage: %s %s\n", cmdtp->name, cmdtp->help);
+		} else {
+			printf("Usage: %s %s\n", cmdtp->name, cmdtp->usage);
+		}
+#else
+		printf("Usage: %s %s\n", cmdtp->name, cmdtp->usage);
+#endif
+		return 1;
+	}
+
+	if (!strncmp(argv[1], "lu", 2)) {
+		/*
+		 * This is write u-boot to flash
+		 *
+		 * --tftpboot 0x80100000 uboot-gl-mt300a.bin:
+		 * 		copy ***.bin to ram, at 0x80100000
+		 *
+		 * --erase 0xbc000000 0xbc040000:
+		 * 		erase flash, from 0xbc000000 to 0xbc040000, 0x40000=256KB
+		 *
+		 * --cp 0x80100000 0xbc000000 0x40000:
+		 * 		copy data from ram(at 0x80100000) to flash(at 0xbc040000), size:0x4000
+		 */
+		if (run_command("tftpboot 0x80100000 uboot-gl-mt300n-v2.bin", 0)) {
+			if (TftpdownloadStatus) {
+				run_command("erase uboot", 0);
+				run_command("cp uboot", 0);
+			}
+			else {
+				printf("TFTP download uboot.bin failed. Please re-download\n");
+			}
+
+		}
+		return 0;
+	} else if (!strncmp(argv[1], "lf", 2)) {
+		if (run_command("tftpboot 0x80100000 lede-gl-mt300n-v2.bin", 0)) {
+			if (!TftpdownloadStatus) {
+				printf("TFTP download firmware failed. Please re-download\n");
+				return 0;
+			}
+			/* erase flash */
+			sprintf(cmd, "erase 0xbc050000 +%x", NetBootFileXferSize + 0x10000);
+			run_command(cmd, 0);
+
+			/* burn to flash */
+			memset(cmd, 0x0, 128);
+			sprintf(cmd, "cp 0x80100000 0xbc050000 %x", NetBootFileXferSize + 0x10000);
+			run_command(cmd, 0);
+		}
+		return 0;
+	} else if (!strncmp(argv[1], "lc", 2)) {
+		cp_flash_to_ram(0xbc040000, 0x80040000, 0x4000);
+		if (run_command("tftpboot 0x80044000 config.bin", 0)) {
+			copy_modify_mac();
+			copy_mac();
+
+			run_command("erase 0xbc040000 0xbc050000", 0);
+			run_command("cp 0x80040000 0xbc040000 0x10000", 0);
+		}
+		return 0;
+	} else {
+		printf("Usage: %s %s\n", cmdtp->name, cmdtp->usage);
+		return 1;
+	}
+
+	return 0;
+}
+
+U_BOOT_CMD(
+	run,	2,	1, 	do_run,
+	"run	- tftp-erase-cp \n",
+	"\nrun lu:\n"
+	"    - download uboot-gl-mt300n-v2.bin from your tftp server and replace the current one\n\n"
+	"run lf:\n"
+	"    - download lede-gl-mt300n-v2.bin	from your tftp server and write on flash\n\n"
+	"run lc:\n"
+	"    - download config.bin from your tftp server and change the mac address\n\n"
+);
+
+int ralink_spi_command(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	if (!strncmp(argv[1], "id", 3)) {
+		u8 buf[5];
+		raspi_read_devid(buf, 5);
+		printf("device id: %x %x %x %x %x\n", buf[0], buf[1], buf[2], buf[3], buf[4]);
+	}
+	else if (!strncmp(argv[1], "read", 5)) {
+		unsigned int addr, len;
+		u8 *p;
+		int i;
+
+		addr = simple_strtoul(argv[2], NULL, 16);
+		len = simple_strtoul(argv[3], NULL, 16);
+		p = (u8 *)malloc(len);
+		if (!p) {
+			printf("malloc error\n");
+			return 0;
+		}
+		len = raspi_read(p, addr, len); //reuse len
+		printf("read len: %d\n", len);
+		for (i = 0; i < len; i++) {
+			printf("%x ", p[i]);
+		}
+		printf("\n");
+		free(p);
+	}
+	else if (!strncmp(argv[1], "erase", 6)) {
+		unsigned int o, l;
+		o = simple_strtoul(argv[2], NULL, 16);
+		l = simple_strtoul(argv[3], NULL, 16);
+		printf("erase offs 0x%x, len 0x%x\n", o, l);
+		raspi_erase(o, l);
+	}
+	else if (!strncmp(argv[1], "write", 6)) {
+		unsigned int o, l;
+		u8 *p, t[3] = {0};
+		int i;
+
+		o = simple_strtoul(argv[2], NULL, 16);
+		l = strlen(argv[3]) / 2;
+		p = (u8 *)malloc(l);
+		if (!p) {
+			printf("malloc error\n");
+			return 0;
+		}
+		for (i = 0; i < l; i++) {
+			t[0] = argv[3][2*i];
+			t[1] = argv[3][2*i+1];
+			*(p + i) = simple_strtoul(t, NULL, 16);
+		}
+		printf("write offs 0x%x, len 0x%x\n", o, l);
+		raspi_write(p, o, l);
+		free(p);
+	}
+	else if (!strncmp(argv[1], "sr", 3)) {
+		u8 sr;
+		if (!strncmp(argv[2], "read", 5)) {
+			if (raspi_read_sr(&sr) < 0)
+				printf("read sr failed\n");
+			else
+				printf("sr %x\n", sr);
+		}
+		else if (!strncmp(argv[2], "write", 6)) {
+			sr = (u8)simple_strtoul(argv[3], NULL, 16);
+			printf("trying write sr %x\n", sr);
+			if (raspi_write_sr(&sr) < 0)
+				printf("write sr failed\n");
+			else {
+				if (raspi_read_sr(&sr) < 0)
+					printf("read sr failed\n");
+				else
+					printf("sr %x\n", sr);
+			}
+		}
+	}
+	else if (!strncmp(argv[1], "scur", 2)) {
+		u8 scur;
+		if (argv[2][0] == 'r') {
+			if (raspi_read_scur(&scur) < 0)
+				printf("read scur failed\n");
+			else
+				printf("scur %d\n", scur);
+		}
+	}
+	else
+		printf("Usage:\n%s\n use \"help spi\" for detail!\n", cmdtp->usage);
+	return 0;
+}
+
+U_BOOT_CMD(
+	spi,	4,	1, 	ralink_spi_command,
+	"spi	- spi command\n",
+	"spi usage:\n"
+	"  spi id\n"
+	"  spi sr read\n"
+	"  spi sr write <value>\n"
+	"  spi read <addr> <len>\n"
+	"  spi erase <offs> <len>\n"
+	"  spi write <offs> <hex_str_value>\n"
+);
+#endif /* CFG_CMD_RUN end */
+
 #endif

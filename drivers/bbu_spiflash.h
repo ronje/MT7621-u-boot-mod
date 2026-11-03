@@ -42,6 +42,8 @@
 #define STM_OP_RD_SIG		0xab	/* Read Electronic Signature */
 #define STM_OP_RD_ID		0x9f	/* Read JEDEC ID */
 #define STM_OP_HPM		0xa3	/* High Performance Mode */
+#define STM_OP_BUF_WRITE	0x9c	/* Buffer Write, P25Q64SH 独有 */
+#define STM_OP_BUF_PPROG	0x9d	/* Buffer to Main Memory Page Program, P25Q64SH 独有 */
 
 #define STM_STATUS_WIP		0x01	/* Write-In-Progress */
 #define STM_STATUS_WEL		0x02	/* Write Enable Latch */

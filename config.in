@@ -13,7 +13,7 @@ fi
 comment ""
 
 mainmenu_name 'Uboot Configuration'
-                  
+
 define_bool ASIC_BOARD y
 
 if [ "$FPGA_BOARD" = "y" ]; then
@@ -54,7 +54,7 @@ define_bool RT2880_MP y
 choice 'GMAC connected to ' "100Switch   MAC_TO_100SW_MODE \
 			     100Phy  MAC_TO_100PHY_MODE \
 			     GigaSW  MAC_TO_VITESSE_MODE \
-			     GigaPhy MAC_TO_GIGAPHY_MODE 
+			     GigaPhy MAC_TO_GIGAPHY_MODE
 			    " 100Switch
 
 if [ "$MAC_TO_VITESSE_MODE" = "y" ]; then
@@ -76,7 +76,7 @@ define_bool ON_BOARD_NOR_FLASH_COMPONENT y
 
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 #-----------------------
 # RT2880 DRAM
@@ -86,11 +86,11 @@ define_bool ON_BOARD_SDR y
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 
 choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
-                   32bits ON_BOARD_32BIT_DRAM_BUS 
+                   32bits ON_BOARD_32BIT_DRAM_BUS
 		  " 32bits
 
 #-----------------------
@@ -98,7 +98,7 @@ choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
 #-----------------------
 comment ""
 choice 'Ram/Rom version' "RAM UBOOT_RAM \
-			  ROM UBOOT_ROM 
+			  ROM UBOOT_ROM
 			 " ROM
 
 bool "Dual Image" DUAL_IMAGE_SUPPORT
@@ -106,7 +106,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       " W/LLLL
 fi
 
@@ -155,7 +155,7 @@ choice 'Flash Type' "NOR ON_BOARD_NOR_FLASH_COMPONENT \
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 
@@ -167,11 +167,11 @@ define_bool ON_BOARD_SDR y
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 
 choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
-                   32bits ON_BOARD_32BIT_DRAM_BUS 
+                   32bits ON_BOARD_32BIT_DRAM_BUS
 		  " 32bits
 
 #-----------------------
@@ -180,7 +180,7 @@ choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
 comment ""
 if [ "$ON_BOARD_NOR_FLASH_COMPONENT" == "y" ]; then
 choice 'Ram/Rom version' "RAM UBOOT_RAM \
-			  ROM UBOOT_ROM 
+			  ROM UBOOT_ROM
 			 " ROM
 else
 define_bool UBOOT_RAM y
@@ -191,7 +191,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       " W/LLLL
 fi
 
@@ -227,7 +227,7 @@ choice 'Flash Type' "NOR ON_BOARD_NOR_FLASH_COMPONENT \
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 
@@ -239,7 +239,7 @@ define_bool ON_BOARD_SDR y
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 
 define_bool ON_BOARD_16BIT_DRAM_BUS y
@@ -250,7 +250,7 @@ define_bool ON_BOARD_16BIT_DRAM_BUS y
 comment ""
 if [ "$ON_BOARD_NOR_FLASH_COMPONENT" == "y" ]; then
 choice 'Ram/Rom version' "RAM UBOOT_RAM \
-			  ROM UBOOT_ROM 
+			  ROM UBOOT_ROM
 			 " ROM
 else
 define_bool UBOOT_RAM y
@@ -261,7 +261,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       "
 fi
 
@@ -292,21 +292,21 @@ choice 'GE1 connected to' "GE_MII_FORCE_100	 GE_MII_FORCE_100 \
 		  	   GE_MII_AN		 GE_MII_AN \
 		           GE_RGMII_FORCE_1000(MT7530)      GE_RGMII_FORCE_1000 \
 		           GE_RGMII_FORCE_VITESSE   GE_RGMII_FORCE_VITESSE \
-		           GE_RGMII_AN		 GE_RGMII_AN 
+		           GE_RGMII_AN		 GE_RGMII_AN
 			  "
 else
 choice 'GE2 connected to' "GE_MII_FORCE_100		GE_MII_FORCE_100 \
 			    GE_RVMII_FORCE_100		GE_RVMII_FORCE_100 \
   			    GE_MII_AN			GE_MII_AN \
 			    GE_RGMII_FORCE_1000		GE_RGMII_FORCE_1000 \
-			    GE_RGMII_AN			GE_RGMII_AN 
+			    GE_RGMII_AN			GE_RGMII_AN
 			   "
 fi
 
 if [ "$GE_MII_FORCE_100" = "y" -o \
      "$GE_RVMII_FORCE_100" = "y" ]; then
     define_bool MAC_TO_100SW_MODE y
-fi     
+fi
 
 if [ "$GE_MII_AN" = "y" ]; then
     define_bool MAC_TO_100PHY_MODE y
@@ -340,7 +340,7 @@ choice 'Flash Type' "NOR ON_BOARD_NOR_FLASH_COMPONENT \
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 
@@ -355,11 +355,11 @@ if [ "$ON_BOARD_SDR" = "y" ]; then
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 
 choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
-                   32bits ON_BOARD_32BIT_DRAM_BUS 
+                   32bits ON_BOARD_32BIT_DRAM_BUS
 		  " 32bits
 else
 choice 'DDR Component' "256Mb ON_BOARD_256M_DRAM_COMPONENT \
@@ -372,7 +372,7 @@ choice 'DDR Width' "8bits ON_BOARD_DDR_WIDTH_8 \
 		   " 16bits
 
 choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
-                   32bits ON_BOARD_32BIT_DRAM_BUS 
+                   32bits ON_BOARD_32BIT_DRAM_BUS
 		  " 16bits
 fi
 
@@ -382,7 +382,7 @@ fi
 comment ""
 if [ "$ON_BOARD_NOR_FLASH_COMPONENT" == "y" ]; then
 choice 'Ram/Rom version' "RAM UBOOT_RAM \
-			  ROM UBOOT_ROM 
+			  ROM UBOOT_ROM
 			 " ROM
 else
 define_bool UBOOT_RAM y
@@ -393,7 +393,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       "W/LLLL
 fi
 
@@ -432,7 +432,7 @@ choice 'Port 5 Connect to' "None		P5_MAC_TO_NONE_MODE \
 		            External_CPU(MII_RvMII) P5_MII_TO_MAC_MODE \
 		            External_CPU(RvMII_MII) P5_RMII_TO_MAC_MODE
 		      	   " None
-                       
+
 if [ "$P5_MAC_TO_PHY_MODE" = "y" ]; then
    hex "GigaPHY address for Auto Polling" MAC_TO_GIGAPHY_MODE_ADDR 0x1f
 fi
@@ -450,7 +450,7 @@ define_bool UBOOT_RAM y
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 
@@ -466,10 +466,10 @@ if [ "$ON_BOARD_SDR" = "y" ]; then
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
-                   32bits ON_BOARD_32BIT_DRAM_BUS 
+                   32bits ON_BOARD_32BIT_DRAM_BUS
 		  " 16bits
 else
 choice 'DDR Component' "256Mb ON_BOARD_256M_DRAM_COMPONENT \
@@ -482,7 +482,7 @@ choice 'DDR Width' "8bits ON_BOARD_DDR_WIDTH_8 \
 		   " 16bits
 
 choice 'DRAM Bus' "16bits ON_BOARD_16BIT_DRAM_BUS \
-                   32bits ON_BOARD_32BIT_DRAM_BUS 
+                   32bits ON_BOARD_32BIT_DRAM_BUS
 		  " 16bits
 fi
 #-----------------------
@@ -494,7 +494,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       "
 fi
 
@@ -534,7 +534,7 @@ define_bool UBOOT_RAM y
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 
@@ -546,7 +546,7 @@ define_bool ON_BOARD_SDR y
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 
 define_bool ON_BOARD_16BIT_DRAM_BUS y
@@ -559,7 +559,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       "
 fi
 bool "Static DRAM Parameter" DRAM_PARAMETERS
@@ -598,7 +598,7 @@ choice 'Port 5 Connect to' "None		P5_MAC_TO_NONE_MODE \
 		            External_CPU(MII_RvMII) P5_MII_TO_MAC_MODE \
 		            External_CPU(RvMII_MII) P5_RMII_TO_MAC_MODE
 		      	   " None
-                       
+
 if [ "$P5_MAC_TO_PHY_MODE" = "y" ]; then
    hex "GigaPHY address for Auto Polling" MAC_TO_GIGAPHY_MODE_ADDR 0x1f
 fi
@@ -617,7 +617,7 @@ choice 'Flash Type' "NAND ON_BOARD_NAND_FLASH_COMPONENT \
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 
@@ -633,7 +633,7 @@ if [ "$ON_BOARD_SDR" = "y" ]; then
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 else
 choice 'DDR Component' "256Mb ON_BOARD_256M_DRAM_COMPONENT \
@@ -654,7 +654,7 @@ define_bool ON_BOARD_16BIT_DRAM_BUS y
 comment ""
 if [ "$ON_BOARD_SPI_FLASH_COMPONENT" == "y" ]; then
 choice 'Ram/Rom version' "RAM UBOOT_RAM \
-			  ROM UBOOT_ROM 
+			  ROM UBOOT_ROM
 			 " ROM
 #choice 'Small Uboot/Config partition' "Normal_Partition_5_sectors NORMAL_UBOOT_PARTITION \
 #				       Small_Partition_3_sectors SMALL_UBOOT_PARTITION
@@ -668,7 +668,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       "
 fi
 
@@ -740,9 +740,9 @@ if [ "$ON_BOARD_SDR" = "y" ]; then
 choice 'DRAM Component' "16Mb ON_BOARD_16M_DRAM_COMPONENT \
 			 64Mb ON_BOARD_64M_DRAM_COMPONENT \
 			 128Mb ON_BOARD_128M_DRAM_COMPONENT \
-			 256Mb ON_BOARD_256M_DRAM_COMPONENT 
+			 256Mb ON_BOARD_256M_DRAM_COMPONENT
 			"128Mb
-else 
+else
 if [ "$ON_BOARD_DDR1" = "y" ]; then
 choice 'DDR Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
 			128Mb ON_BOARD_128M_DRAM_COMPONENT \
@@ -769,7 +769,7 @@ define_bool ON_BOARD_16BIT_DRAM_BUS y
 comment ""
 if [ "$ON_BOARD_SPI_FLASH_COMPONENT" == "y" ]; then
 #choice 'Ram/Rom version' "RAM UBOOT_RAM \
-#			  ROM UBOOT_ROM 
+#			  ROM UBOOT_ROM
 #			 " ROM
 #choice 'Small Uboot/Config partition' "Normal_Partition_5_sectors NORMAL_UBOOT_PARTITION \
 #				       Small_Partition_3_sectors SMALL_UBOOT_PARTITION
@@ -784,7 +784,7 @@ fi
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       "
 fi
 
@@ -796,7 +796,7 @@ if [ "$DRAM_PARAMETERS" = "y" ]; then
 if [ "$ON_BOARD_SDR" = "y" ]; then
 hex " SDRAM_CFG0"		DRAM_CFG0	11925282
 hex " SDRAM_CFG1"		DRAM_CFG1	8011088B
-else 
+else
 if [ "$ON_BOARD_DDR1" = "y" ]; then
 hex " DDR_CFG0"			DRAM_CFG0				352A2E34
 hex " DDR_CFG1"			DRAM_CFG1				202A2424
@@ -804,7 +804,7 @@ hex " DDR_CFG2"			DDR_CFG2_SETTING			33
 hex " DDR_CFG3"			DDR_CFG3_SETTING			0
 hex " DDR_CFG4"			DDR_CFG4_SETTING			0
 hex " DRAM_PAD_SETTING" DRAM_PAD_SETTING		00094054
-else 
+else
 if [ "$ON_BOARD_DDR2" = "y" ]; then
 hex " DDR_CFG0"         DRAM_CFG0               35A3238D
 hex " DDR_CFG1"         DRAM_CFG1               22322424
@@ -841,7 +841,7 @@ choice 'Port 5 Connect to' "None		P5_MAC_TO_NONE_MODE \
 		            External_CPU(MII_RvMII) P5_MII_TO_MAC_MODE \
 		            External_CPU(RvMII_MII) P5_RMII_TO_MAC_MODE
 		      	   " None
-                       
+
 if [ "$P5_MAC_TO_PHY_MODE" = "y" ]; then
    hex "GigaPHY address for Auto Polling" MAC_TO_GIGAPHY_MODE_ADDR 0x5
 fi
@@ -856,7 +856,7 @@ choice 'Port 4 Connect to' "None		P4_MAC_TO_NONE_MODE \
 		            External_CPU(MII_RvMII) P4_MII_TO_MAC_MODE \
 		            External_CPU(RvMII_MII) P4_RMII_TO_MAC_MODE
 		      	   " None
-                       
+
 if [ "$P4_MAC_TO_PHY_MODE" = "y" ]; then
    hex "GigaPHY address for Auto Polling" MAC_TO_GIGAPHY_MODE_ADDR2 0x4
 fi
@@ -872,7 +872,7 @@ choice 'Flash Type' "NAND ON_BOARD_NAND_FLASH_COMPONENT \
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 #-----------------------
@@ -887,7 +887,7 @@ if [ "$ON_BOARD_SDR" = "y" ]; then
 choice 'DRAM Component' "64Mb ON_BOARD_64M_DRAM_COMPONENT \
                          128Mb ON_BOARD_128M_DRAM_COMPONENT \
                          256Mb ON_BOARD_256M_DRAM_COMPONENT \
-                         512Mb ON_BOARD_512M_DRAM_COMPONENT 
+                         512Mb ON_BOARD_512M_DRAM_COMPONENT
 		      " 128Mb
 else
 if [ "$ON_BOARD_DDR1" = "y" ]; then
@@ -926,7 +926,7 @@ define_bool RX_SCATTER_GATTER_DMA y
 
 if [ "$ON_BOARD_SPI_FLASH_COMPONENT" == "y" ]; then
 choice 'Ram/Rom version' "RAM UBOOT_RAM \
-			  ROM UBOOT_ROM 
+			  ROM UBOOT_ROM
 			 " ROM
 #choice 'Small Uboot/Config partition' "Normal_Partition_5_sectors NORMAL_UBOOT_PARTITION \
 #				       Small_Partition_3_sectors SMALL_UBOOT_PARTITION
@@ -1028,7 +1028,7 @@ bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then
  choice 'LAN/WAN Board Layout' "W/LLLL RALINK_DEMO_BOARD_PVLAN \
-		                LLLL/W RALINK_EV_BOARD_PVLAN 
+		                LLLL/W RALINK_EV_BOARD_PVLAN
 			       "
 fi
 
@@ -1104,7 +1104,7 @@ choice 'GE1 connected to' "GE_MII_FORCE_100	 GE_MII_FORCE_100 \
 		           GE_RVMII_FORCE_100    GE_RVMII_FORCE_100 \
 		  	   GE_MII_AN		 GE_MII_AN \
 		           GE_RGMII_FORCE_1000   GE_RGMII_FORCE_1000 \
-		           GE_RGMII_AN		 GE_RGMII_AN 
+		           GE_RGMII_AN		 GE_RGMII_AN
 			  "
 else
 choice 'GE2 connected to' " GE_MII_FORCE_100		GE_MII_FORCE_100 \
@@ -1113,14 +1113,14 @@ choice 'GE2 connected to' " GE_MII_FORCE_100		GE_MII_FORCE_100 \
 			    GE_RGMII_FORCE_1000		GE_RGMII_FORCE_1000 \
 			    GE_RGMII_AN			GE_RGMII_AN \
 			    GE_RGMII_INTERNAL_P0_AN	GE_RGMII_INTERNAL_P0_AN \
-			    GE_RGMII_INTERNAL_P4_AN	GE_RGMII_INTERNAL_P4_AN 
+			    GE_RGMII_INTERNAL_P4_AN	GE_RGMII_INTERNAL_P4_AN
 			   "
 fi
 
 if [ "$GE_MII_FORCE_100" = "y" -o \
      "$GE_RVMII_FORCE_100" = "y" ]; then
     define_bool MAC_TO_100SW_MODE y
-fi     
+fi
 
 if [ "$GE_MII_AN" = "y" -a "$MT7621_USE_GE1" = "y" ]; then
     define_bool MAC_TO_100PHY_MODE y
@@ -1168,7 +1168,7 @@ define_bool	ON_BOARD_NAND_BOOTSTRAP y
 
 #choice 'NAND parameters' "BootStrap ON_BOARD_NAND_BOOTSTRAP	\
 #			  Header    ON_BOARD_NAND_HEADER
-#			"BootStrap							
+#			"BootStrap
 
 fi
 
@@ -1197,8 +1197,8 @@ choice 'NAND address length' "4 NAND_ADDRLEN_4 \
 		if [ "$NAND_ADDRLEN_6" = "y" ]; then
 			define_hex	NAND_ADDRLEN_INDEX	2
 		fi
-		
-		
+
+
 choice 'NAND spare size' "64B NAND_SPARESIZE_64 \
 	                                      128B NAND_SPARESIZE_128 \
 	                                      224B NAND_SPARESIZE_224 \
@@ -1211,7 +1211,7 @@ choice 'NAND spare size' "64B NAND_SPARESIZE_64 \
 		fi
 		if [ "$NAND_SPARESIZE_224" = "y" ]; then
 			define_hex	NAND_SPARESIZE_INDEX	2
-		fi			
+		fi
 
 choice 'NAND total size' "64MB NAND_TOTALSIZE_64MB \
 	                                      128MB NAND_TOTALSIZE_128MB \
@@ -1269,7 +1269,7 @@ fi
 if [ "$DUAL_IMAGE_SUPPORT" = "y" ]; then
 choice 'Flash Size' "4M ON_BOARD_4M_FLASH_COMPONENT \
                      8M ON_BOARD_8M_FLASH_COMPONENT \
-                     16M ON_BOARD_16M_FLASH_COMPONENT 
+                     16M ON_BOARD_16M_FLASH_COMPONENT
 		    " 4M
 fi
 
@@ -1372,17 +1372,17 @@ if [ "$MT7621_CPU_50MHZ" = "y" ]; then
     define_hex  MT7621_CPU_FREQUENCY    32
 fi
 
-#choice 'UART baud rate' "57600bps MT7621_UART_57600 \
-#						115200bps MT7621_UART_115200"
-#						115200bps
-#if [ "$MT7621_UART_57600" = "y" ]; then
-#    define_int  MT7621_UART_BAUD 57600
-#    define_int MT7621_UCLK_20M 1
-#fi
-#if [ "$MT7621_UART_115200" = "y" ]; then
-#    define_int  MT7621_UART_BAUD 115200
-#    define_int MT7621_UCLK_20M 0
-#fi
+choice 'UART baud rate' "57600bps MT7621_UART_57600 \
+						115200bps MT7621_UART_115200"
+						115200bps
+if [ "$MT7621_UART_57600" = "y" ]; then
+    define_int  MT7621_UART_BAUD 57600
+    define_int MT7621_UCLK_20M 1
+fi
+if [ "$MT7621_UART_115200" = "y" ]; then
+    define_int  MT7621_UART_BAUD 115200
+    define_int MT7621_UCLK_20M 0
+fi
 #-----------------------
 # MT7621 Option
 #-----------------------
@@ -1393,7 +1393,7 @@ define_bool RX_SCATTER_GATTER_DMA y
 
 if [ "$ON_BOARD_SPI_FLASH_COMPONENT" == "y" ]; then
 choice 'Ram/Rom version' "RAM UBOOT_RAM \
-			  ROM UBOOT_ROM 
+			  ROM UBOOT_ROM
 			 " ROM
 else
 define_bool UBOOT_RAM y
@@ -1402,6 +1402,15 @@ fi
 bool "Dual Image" DUAL_IMAGE_SUPPORT
 bool "Dual Core Support" RALINK_DUAL_CORE_FUN
 define_bool RALINK_DUAL_VPE_FUN	y
+
+#-----------------------
+# 单板选择 ax1800 (MT7621): GPIO/LED 映射切换 + reset 分级升级流程
+#   GPIO#16=reset键(长按分级: 3~8s->httpd web升级 / >8s->TFTP工厂安装)
+#   GPIO#14=硬件看门狗喂狗(2min 内需 >=50ms 高电平脉冲)
+#   GPIO#13=USB 口供电(低=上电, uboot 保持供电)
+#   GPIO#17=sysLed(低=亮; 不勾选则沿用 FireWRT 映射)
+#-----------------------
+bool "Board: AX1800 GPIO map" BOARD_AX1800
 
 bool "Partition LAN/WAN" LAN_WAN_PARTITION
 if [ "$LAN_WAN_PARTITION" = "y" ]; then

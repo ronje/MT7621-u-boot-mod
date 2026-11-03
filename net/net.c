@@ -79,10 +79,37 @@
 #include "httpd.h"
 
 #include <asm/addrspace.h>
+#include <configs/rt2880.h>
+
 #undef DEBUG
+
+/* WEBFAILSAFE constants - fallback definitions */
+#ifndef WEBFAILSAFE_PROGRESS_START
+#define WEBFAILSAFE_PROGRESS_START         0
+#define WEBFAILSAFE_PROGRESS_TIMEOUT       1
+#define WEBFAILSAFE_PROGRESS_UPLOAD_READY  2
+#define WEBFAILSAFE_PROGRESS_UPGRADE_READY 3
+#define WEBFAILSAFE_PROGRESS_UPGRADE_FAILED 4
+#define WEBFAILSAFE_UPGRADE_TYPE_FIRMWARE  0
+#define WEBFAILSAFE_UPGRADE_TYPE_UBOOT     1
+#define WEBFAILSAFE_UPGRADE_TYPE_ART       2
+#endif
+
+/* Function declarations */
+extern void eth_parse_enetaddr(const char *addr, uchar *enetaddr);
+extern int do_bootm(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
+extern int do_reset(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
 #ifdef CONFIG_STATUS_LED
 #include <status_led.h>
 #include <miiphy.h>
+#endif
+#if defined(BOARD_AX1800)
+/* AX1800: LED 状态机/看门狗喂狗/按键(GPIO 层在 drivers/gpio.c) */
+#include <gpio.h>
+#ifndef GPIO_VAL_LED_SHOW
+#define GPIO_VAL_LED_SHOW	0	/* 默认低=亮(与 drivers/gpio.c 一致) */
+#endif
+extern void httpd_upload_stall_check(void);	/* httpd/httpd.c: 上传收尾超时兜底 */
 #endif
 //!增加的头文件
 #ifdef OLED_1_3
@@ -101,7 +128,7 @@
 DECLARE_GLOBAL_DATA_PTR;
 #define ARP_TIMEOUT		3		/* Seconds before trying ARP again */
 #ifndef	CONFIG_NET_RETRY_COUNT
-# define ARP_TIMEOUT_COUNT	8		/* # of timeouts before giving up  */
+# define ARP_TIMEOUT_COUNT	3		/* # of timeouts before giving up (工厂式TFTP: 重试3次) */
 #else
 # define ARP_TIMEOUT_COUNT  (CONFIG_NET_RETRY_COUNT)
 #endif
@@ -113,6 +140,12 @@ unsigned char *webfailsafe_data_pointer = NULL;
 int       webfailsafe_is_running = 0;
 extern volatile int webfailsafe_upgrade_type;
 int       webfailsafe_ready_for_upgrade = 0;
+#if defined(BOARD_AX1800)
+int       webfailsafe_uploading = 0;	/* httpd 正在接收固件上传(数据已开始入库) */
+#endif
+/* TFTP 下载状态(spi flash 驱动的 lu/lf 快捷刷写命令引用, 7628 树在
+ * common/cmd_net.c 定义, 本树并入 net.c) */
+int TftpdownloadStatus = 0;
 extern cmd_tbl_t *p_gmdtp;
 /** BOOTP EXTENTIONS **/
 
@@ -182,9 +215,9 @@ void NcStart(void);
 int nc_input_packet(uchar *pkt, unsigned dest, unsigned src, unsigned len);
 #endif
 
-  
+
 volatile uchar	*PktBuf;
-	
+
 volatile uchar	Pkt_Buf_Pool[(PKTBUFSRX+2) * PKTSIZE_ALIGN + PKTALIGN];
 
 //FRANK request
@@ -317,9 +350,9 @@ NetLoop(proto_t protocol)
 	NetArpWaitPacketIP = 0;
 	NetArpWaitReplyIP = 0;
 	NetArpWaitTxPacket = NULL;
-#ifdef DEBUG	
+#ifdef DEBUG
    printf("File: %s, Func: %s, Line: %d\n", __FILE__,__FUNCTION__ , __LINE__);
-#endif   
+#endif
 //
 	if (!NetTxPacket) {
 		int	i;
@@ -327,13 +360,13 @@ NetLoop(proto_t protocol)
 		/*
 		 *	Setup packet buffers, aligned correctly.
 		 */
-		buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list); 
+		buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list);
 		NetTxPacket = buf->pbuf;
 
 		debug("\n NetTxPacket = 0x%08X \n",NetTxPacket);
 		for (i = 0; i < NUM_RX_DESC; i++) {
 
-			buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list); 
+			buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list);
 			if(buf == NULL)
 			{
 				printf("\n Packet Buffer is empty ! \n");
@@ -344,7 +377,7 @@ NetLoop(proto_t protocol)
 			//printf("\n NetRxPackets[%d] = 0x%08X\n",i,NetRxPackets[i]);
 		}
 	}
-	
+
 	NetTxPacket = KSEG1ADDR(NetTxPacket);
 
 	printf("\n KSEG1ADDR(NetTxPacket) = 0x%08X \n",NetTxPacket);
@@ -364,7 +397,7 @@ NetLoop(proto_t protocol)
 	{
 	    printf("\n eth_init is fail !!\n");
 		return(-1);
-	}	
+	}
 
 restart:
 #ifdef CONFIG_NET_MULTI
@@ -440,6 +473,12 @@ restart:
 #endif
 		switch (protocol) {
 		case TFTP:
+#if defined(BOARD_AX1800)
+			/* 开始 TFTP 下载前喂狗: 下载段(最长大固件 1~2 分钟)不喂狗,
+			 * 结束点(NetLoop SUCCESS)再喂一次, 两头夹住 */
+			wdt_gpio_kick();
+			printf("## wdt: kick before TFTP download\n");
+#endif
 			/* always use ARP to get server ethernet address */
 			TftpStart();
 			break;
@@ -510,7 +549,7 @@ restart:
 	 *	Main packet reception loop.  Loop receiving packets until
 	 *	someone sets `NetQuit'.
 	 */
-	for (;;) {		
+	for (;;) {
 		WATCHDOG_RESET();
 #ifdef CONFIG_SHOW_ACTIVITY
 		{
@@ -522,6 +561,11 @@ restart:
 		 *	Check the ethernet for a new packet.  The ethernet
 		 *	receive routine will process it.
 		 */
+#if defined(BOARD_AX1800)
+		/* AX1800: uboot 启动阶段(TFTP 下载) run 灯(sysLed)慢闪。
+		 * 喂狗只在写 flash 的 E/W/V 切换点 + TFTP 起止(两头夹住)。 */
+		run_led_heartbeat(RUN_LED_BLINK_SLOW);
+#endif
 			eth_rx();
 
 		/*
@@ -580,6 +624,13 @@ restart:
 				sprintf(buf, "%lX", (unsigned long)load_addr);
 				setenv("fileaddr", buf);
 			}
+#if defined(BOARD_AX1800)
+			/* TFTP 下载完成: 喂狗(下载段不喂狗, 与起始 kick 两头夹住;
+			 * 成功路径后续是写 flash 的 E/W/V kick, 失败路径秒级回退) */
+			wdt_gpio_kick();
+			printf("## wdt: kick after TFTP download\n");
+			LED_STATUS(WAN_LED, LED_OFF);
+#endif
 			eth_halt();
 			return NetBootFileXferSize;
 
@@ -1198,7 +1249,7 @@ NetReceive(volatile uchar * inpkt, int len)
 	{
 		printf("\n en[%d] < ETHER_HDR_SIZE\n",len);
 		return;
-	}	
+	}
 
 #if (CONFIG_COMMANDS & CFG_CMD_CDP)
 	/* keep track if packet is CDP */
@@ -1348,7 +1399,7 @@ NetReceive(volatile uchar * inpkt, int len)
 			/* are we waiting for a reply */
 			if (!NetArpWaitPacketIP || !NetArpWaitPacketMAC)
 				break;
-			
+
 			printf("Got ARP REPLY, set server/gtwy eth addr (%02x:%02x:%02x:%02x:%02x:%02x)\n",
 				arp->ar_data[0], arp->ar_data[1],
 				arp->ar_data[2], arp->ar_data[3],
@@ -1373,7 +1424,7 @@ NetReceive(volatile uchar * inpkt, int len)
 				NetArpWaitPacketMAC = NULL;
 
 				/* if Arp response requested by TFTP,
-				 * send "TFTP Read Request" packet 
+				 * send "TFTP Read Request" packet
 				 * immediately */
 				extern int TftpStarted;
 				if(TftpStarted == 1) {
@@ -1806,9 +1857,9 @@ void NetReceiveHttpd(volatile uchar * inpkt, int len){
 	uip_len = len;
 
 	//printf("NetReceiveHttpd buf->type = %04X\n", ntohs(BUF->type));
-   
+
 	if(BUF->type == htons(UIP_ETHTYPE_IP)){
-		//printf("buf type is UIP_ETHTYPE_IP\n"); 
+		//printf("buf type is UIP_ETHTYPE_IP\n");
 		uip_arp_ipin();
 		uip_input();
 
@@ -1817,7 +1868,7 @@ void NetReceiveHttpd(volatile uchar * inpkt, int len){
 			NetSendHttpd();
 		}
 	} else if(BUF->type == htons(UIP_ETHTYPE_ARP)){
-		//printf("buf type is UIP_ETHTYPE_ARP\n");   
+		//printf("buf type is UIP_ETHTYPE_ARP\n");
 		uip_arp_arpin();
 
 		if(uip_len > 0){
@@ -1834,18 +1885,21 @@ void NetReceiveHttpd(volatile uchar * inpkt, int len){
 int NetLoopHttpd(void){
 	bd_t *bd = gd->bd;
 	unsigned short int ip[2];
-	unsigned char ethinit_attempt = 0;
 	struct uip_eth_addr eaddr;
-    char httpd_ipaddr[22] = "192.168.1.1";
-#ifdef OLED_1_3
-    OLED_ShowString(0,4,httpd_ipaddr);
+#if defined(BOARD_AX1800)
+	unsigned char ethinit_attempt = 0;
 #endif
-    setenv("ipaddr",httpd_ipaddr);
+	char httpd_ipaddr[22];
 #ifdef CONFIG_NET_MULTI
 	NetRestarted = 0;
 	NetDevExists = 0;
 #endif
 	IPaddr_t x = ntohl(bd->bi_ip_addr);
+#if defined(BOARD_AX1800)
+	/* httpd 等待浏览器连接阶段 run 灯(sysLed)常亮 */
+	printf("Setting WAN_LED(sysLed) to SHOW for HTTPD server\n");
+	mtk_set_gpio_pin(WAN_LED, GPIO_VAL_LED_SHOW);
+#endif
 	/* XXX problem with bss workaround */
 	NetArpWaitPacketMAC	= NULL;
 	NetArpWaitTxPacket	= NULL;
@@ -1860,12 +1914,12 @@ int NetLoopHttpd(void){
 		/*
 		 *	Setup packet buffers, aligned correctly.
 		 */
-		buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list); 
+		buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list);
 		NetTxPacket = buf->pbuf;
 
 		for (i = 0; i < NUM_RX_DESC; i++) {
 
-			buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list); 
+			buf = rt2880_free_buf_entry_dequeue(&rt2880_free_buf_list);
 			if(buf == NULL)
 			{
 				printf("\n Packet Buffer is empty ! \n");
@@ -1875,7 +1929,7 @@ int NetLoopHttpd(void){
 			NetRxPackets[i] = buf->pbuf;
 		}
 	}
-	
+
 	NetTxPacket = KSEG1ADDR(NetTxPacket);
 
 	if(!NetArpWaitTxPacket){
@@ -1883,26 +1937,54 @@ int NetLoopHttpd(void){
 		NetArpWaitTxPacket -= (ulong)NetArpWaitTxPacket % PKTALIGN;
 		NetArpWaitTxPacketSize = 0;
 	}
-					
+
 	eth_halt();
 
-	milisecdelay(50);
 #ifdef CONFIG_NET_MULTI
 	eth_set_current();
 #endif
 
+#if defined(BOARD_AX1800)
+	/* 升级失败 goto restart 重启 httpd 服务器的落点 */
+restart:
+#endif
+#if defined(BOARD_AX1800)
+	/* eth_init 失败重试(最多 10 次, 每次 1s): 网线刚插/交换芯片
+	 * 自协商未完成的场景, 一次失败就放弃会让升级模式无响应 */
+	while( ethinit_attempt < 10 ) {
+		if ( eth_init( bd ) ) {
+			ethinit_attempt = 0;
+			break;
+		} else {
+			ethinit_attempt++;
+			eth_halt();
+			udelay( 1000000 );
+		}
+	}
+
+	if ( ethinit_attempt > 0 ) {
+		eth_halt();
+		printf( "## Error: couldn't initialize eth (cable disconnected?)!\n\n" );
+		return( -1 );
+	}
+#else
+	milisecdelay(50);
 	//printf("\n NetLoop,call eth_init ! \n");
 	if (eth_init(bd) < 0)
 	{
 	    printf("\n eth_init is fail !!\n");
 		return(-1);
 	}
+#endif
 
 	// get MAC address
 #ifdef CONFIG_NET_MULTI
 	memcpy(NetOurEther, eth_get_dev()->enetaddr, 6);
 #else
-	eth_getenv_enetaddr("ethaddr", NetOurEther);
+	{
+		char *s = getenv("ethaddr");
+		eth_parse_enetaddr(s, NetOurEther);
+	}
 #endif
 
 	eaddr.addr[0] = NetOurEther[0];
@@ -1923,27 +2005,32 @@ int NetLoopHttpd(void){
 	NetOurVLAN			= getenv_VLAN("vlan");
 	NetOurNativeVLAN	= getenv_VLAN("nvlan");
 
-	
-	ip_to_string(bd->bi_ip_addr,httpd_ipaddr);  
-	printf("Httpd Server Ip: %s\n",httpd_ipaddr); 
+
+	ip_to_string(bd->bi_ip_addr,httpd_ipaddr);
+	printf("Httpd Server Ip: %s\n",httpd_ipaddr);
 	HttpdStart();
 
 	// set local host ip address
 	ip[0] = htons(((x & 0xFFFF0000) >> 16));
 	ip[1] = htons((x & 0x0000FFFF));
-	
+
 	uip_sethostaddr(ip);
 
-	// set network mask (255.255.0.0 -> local network)
+	// set network mask (AX1800: 255.255.255.0 / 其他: 255.255.0.0)
+#if defined(BOARD_AX1800)
+	ip[0] = htons(0xFFFF);
+	ip[1] = htons (0x00FF);
+#else
 	ip[0] = htons(0xFFFF);
 	ip[1] = htons (0x0000);
+#endif
 
 	uip_setnetmask(ip);
-	
+
 	// should we also set default router ip address?
-	ip[0] = 0xFFFF;  
-	ip[1] = 0xFFFF;  
-	uip_setdraddr(ip);  
+	ip[0] = 0xFFFF;
+	ip[1] = 0xFFFF;
+	uip_setdraddr(ip);
 
 	// show current progress of the process
 	do_http_progress(WEBFAILSAFE_PROGRESS_START);
@@ -1952,6 +2039,15 @@ int NetLoopHttpd(void){
 	// infinite loop
 	for(;;){
 
+#if defined(BOARD_AX1800)
+		/* 仅"接收固件上传"阶段(数据已开始入库) run 灯快闪(100ms);
+		 * 等待浏览器连接阶段常亮不闪。
+		 * 喂狗只在写 flash 的 E/W/V 切换点 + 上传完成后(两头夹住)。 */
+		if ( webfailsafe_uploading ) {
+			run_led_heartbeat(RUN_LED_BLINK_FAST);
+		}
+#endif
+
 		/*
 		 *	Check the ethernet for a new packet.
 		 *	The ethernet receive routine will process it.
@@ -1959,6 +2055,13 @@ int NetLoopHttpd(void){
 		if(eth_rx() > 0){
 			HttpdHandler();
 		}
+
+#if defined(BOARD_AX1800)
+		/* 上传收尾超时兜底(httpd.c): post_done 后 3s 无最终 ACK(链路
+		 * 静默时 uIP 计时器无人驱动, 永等)则强制开始升级, 不再依赖
+		 * 浏览器回退带包解卡 */
+		httpd_upload_stall_check();
+#endif
 
 		// if CTRL+C was pressed -> return!
 		if(ctrlc()){
@@ -1984,15 +2087,45 @@ int NetLoopHttpd(void){
 		// stop eth interface
 		eth_halt();
 
+#if defined(BOARD_AX1800)
+		/* upload 完成、即将写 flash: 喂狗(上传段最长可达 2 分钟,
+		 * 到 [erase] 前的 kick 之间不留空窗) */
+		wdt_gpio_kick();
+		printf( "## wdt: kick after upload done\n" );
+#endif
+
 		// show progress
 		do_http_progress(WEBFAILSAFE_PROGRESS_UPLOAD_READY);
 
 		// try to make upgrade!
 		if(do_http_upgrade(NetBootFileXferSize, webfailsafe_upgrade_type) >= 0){
+#if defined(BOARD_AX1800)
+			udelay(500000);
+#else
 			milisecdelay(500);
+#endif
 
 			do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_READY);
 
+#if defined(BOARD_AX1800)
+			if ( webfailsafe_upgrade_type == WEBFAILSAFE_UPGRADE_TYPE_FIRMWARE ) {
+				/* firmware: 写 flash 后不再复位, return 让调用者
+				 * (board.c reset 分级入口)继续走正常启动(bootm CFG_KERN_ADDR)
+				 * 直接启动新固件, 省一次整板重启。 */
+				printf( "## http-upgrade: firmware done, continue boot\n" );
+				eth_halt();
+				LED_STATUS(WAN_LED, LED_OFF);
+				return( 0 );
+			}
+
+			/* uboot/ART: 内核分区未动, 但新 uboot 必须整板复位才会从
+			 * flash 重新加载生效 —— do_reset, 与 "Rebooting..." 文案一致。 */
+			printf( "## http-upgrade: uboot/ART done, resetting...\n" );
+			eth_halt();
+			LED_STATUS(WAN_LED, LED_OFF);
+			udelay( 1000000 );
+			do_reset(NULL, 0, 0, NULL);
+#else
 			//milisecdelay(500);
 
 			/* reset the board */
@@ -2003,9 +2136,10 @@ int NetLoopHttpd(void){
                 argv[1] = &bootk_addr[0];
                 do_bootm(p_gmdtp,0,2,argv);
             }
-                
+
 
             do_reset(NULL, 0, 0, NULL);
+#endif
 		}
 		break;
 	}
@@ -2018,5 +2152,10 @@ int NetLoopHttpd(void){
 	NetBootFileXferSize = 0;
 
 	do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_FAILED);
+
+#if defined(BOARD_AX1800)
+	/* 升级失败: 重启 httpd 服务器(浏览器刷新页面即可重试), Ctrl+C 退出 */
+	goto restart;
+#endif
 	return(-1);
 }

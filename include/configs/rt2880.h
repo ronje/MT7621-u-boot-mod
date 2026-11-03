@@ -92,6 +92,15 @@ extern unsigned int  CFG_BLOCKSIZE;
 
 #define SERIAL_CLOCK_DIVISOR 16
 
+#if defined(BOARD_AX1800)
+/* AX1800 升级流程网络参数(与 mt7628_uboot_web 一致):
+ * 升级模式电脑配 10.10.10.3, 设备管理地址 10.10.10.1 */
+#define CONFIG_BOOTDELAY	2	/* 倒计时 2s(可串口菜单打断) */
+#define CONFIG_BAUDRATE		115200
+#define CONFIG_SERVERIP 10.10.10.3
+#define CONFIG_IPADDR 10.10.10.1
+#define CONFIG_ETHADDR "00:0C:43:26:60:00"
+#else
 #define CONFIG_BOOTDELAY	5	/* autoboot after 5 seconds	*/
 
 #define CONFIG_BAUDRATE		57600
@@ -99,6 +108,7 @@ extern unsigned int  CFG_BLOCKSIZE;
 #define CONFIG_SERVERIP 192.168.1.2
 #define CONFIG_IPADDR 192.168.1.1
 #define CONFIG_ETHADDR "03:17:73:AB:CD:EF"
+#endif
 /* valid baudrates */
 #define CFG_BAUDRATE_TABLE	{ 9600, 19200, 38400, 57600, 115200 }
 
@@ -106,7 +116,13 @@ extern unsigned int  CFG_BLOCKSIZE;
 
 #undef	CONFIG_BOOTARGS
 
+#if defined(BOARD_AX1800)
+/* AX1800: 上电一律本地启动(flash 内核), TFTP 仅由 reset>8s 显式触发 */
+#define CONFIG_BOOTCOMMAND	"bootm 0xBC050000"
+#define CONFIG_BOOTFILE	"mt7621-squashfs-sysupgrade.bin"
+#else
 #define CONFIG_BOOTCOMMAND	"tftp" //"run flash_self"
+#endif
 
 
 #include <cmd_confdefs.h>
@@ -512,6 +528,20 @@ extern unsigned int  CFG_BLOCKSIZE;
 
 
 
+#if defined(BOARD_AX1800)
+/* AX1800 web 升级地址/大小(与分区联动, 同 mt7628_uboot_web 语义):
+ *   uboot 分区: 0x0 ~ 0x2FFFF (192KB, 超限一律拒刷防变砖)
+ *   kernel 分区: CFG_KERN_ADDR (0x50000 偏移) 起, 上限=芯片容量-320KB 保留区
+ *   ART(=factory) 分区: CFG_FACTORY_ADDR, 固定 64KB
+ * 上传缓冲 RAM 地址与 tftp_config/menu 2 一致(0x80100000) */
+#define WEBFAILSAFE_UPLOAD_UBOOT_ADDRESS		CFG_FLASH_BASE
+#define WEBFAILSAFE_UPLOAD_UBOOT_SIZE_IN_BYTES	(192 * 1024)	/* = CFG_BOOTLOADER_SIZE */
+#define WEBFAILSAFE_UPLOAD_KERNEL_ADDRESS		CFG_KERN_ADDR
+#define WEBFAILSAFE_UPLOAD_ART_ADDRESS		CFG_FACTORY_ADDR
+#define WEBFAILSAFE_UPLOAD_ART_SIZE_IN_BYTES	(64 * 1024)	/* = CFG_FACTORY_SIZE */
+#define WEBFAILSAFE_UPLOAD_RAM_ADDRESS		0x80100000
+#define WEBFAILSAFE_UPLOAD_LIMITED_AREA_IN_BYTES	(320 * 1024)	/* uboot192K+env64K+factory64K */
+#else
 #define WEBFAILSAFE_UPLOAD_UBOOT_ADDRESS   0x0
 
 #define WEBFAILSAFE_UPLOAD_KERNEL_ADDRESS   0x50000
@@ -545,6 +575,7 @@ extern unsigned int  CFG_BLOCKSIZE;
 // TP-Link: 64k(U-Boot),64k(MAC/model/WPS pin block),64k(ART)
 
 #define WEBFAILSAFE_UPLOAD_LIMITED_AREA_IN_BYTES     (192 * 1024)
+#endif /* BOARD_AX1800 */
 
 
 

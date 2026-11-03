@@ -13,3 +13,9 @@ tools/mkimage
 *~
 *.old
 tags
+
+# AX1800 构建产物与工具链(不入库)
+uboot*
+uboot_a.bin
+mt7621_128M
+toolchain/

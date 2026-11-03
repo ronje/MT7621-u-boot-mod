@@ -17,7 +17,7 @@
 #define WELL_KNOWN_PORT	69		/* Well known TFTP port #		*/
 #define TIMEOUT		3		/* Seconds to timeout for a lost pkt	*/
 #ifndef	CONFIG_NET_RETRY_COUNT
-# define TIMEOUT_COUNT	10		/* # of timeouts before giving up  */
+# define TIMEOUT_COUNT	3		/* # of timeouts before giving up (工厂式TFTP: 重试3次) */
 #else
 # define TIMEOUT_COUNT  (CONFIG_NET_RETRY_COUNT * 2)
 #endif

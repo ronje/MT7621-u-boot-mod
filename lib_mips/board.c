@@ -34,6 +34,9 @@
 #include <nand_api.h>
 #include <led.h>
 #include <wps.h>
+#ifdef BOARD_AX1800
+#include <gpio.h>
+#endif
 #ifdef OLED_1_3
 #include <oled.h>
 #endif
@@ -912,6 +915,222 @@ void OperationSelect(void)
 #endif // RALINK_UPGRADE_BY_SERIAL //
 	printf("   %d: Load Boot Loader code then write to Flash via TFTP. \n", SEL_LOAD_BOOT_WRITE_FLASH);
 }
+
+#if defined(BOARD_AX1800) && defined(CFG_ENV_IS_IN_SPI)
+/* ================= AX1800 升级流程(从 mt7628_uboot_web 移植) ================= */
+
+/* 诊断加固: 只读打印 factory 分区整区 CRC32, 不写 flash。
+ * 升级写 flash 前后各调用一次, 两次 CRC 一致即证明写动作未波及 factory
+ * (产线凭证/校准数据区), 为升级留下串口证据。 */
+void factory_crc_print(const char *tag)
+{
+	char *buf = (char *)malloc(CFG_FACTORY_SIZE);
+	ulong crc;
+
+	if (!buf) {
+		printf("## factory-crc[%s]: no mem\n", tag);
+		return;
+	}
+	if (raspi_read(buf, CFG_FACTORY_ADDR - CFG_FLASH_BASE, CFG_FACTORY_SIZE)
+	    != CFG_FACTORY_SIZE) {
+		printf("## factory-crc[%s]: read FAILED\n", tag);
+		free(buf);
+		return;
+	}
+	crc = crc32(0, (const unsigned char *)buf, CFG_FACTORY_SIZE);
+	printf("## factory-crc[%s]: 0x%08lX (0x%08X..0x%08X)\n", tag,
+	       crc, (unsigned)CFG_FACTORY_ADDR,
+	       (unsigned)(CFG_FACTORY_ADDR + CFG_FACTORY_SIZE - 1));
+	free(buf);
+}
+
+/* 诊断加固: 只读打印 env 区(4KB env 数据区, CFG_ENV_SIZE)的 flash CRC32,
+ * 不写 flash。升级前后 CRC 一致即证明 env 未被波及。 */
+void env_crc_print(const char *tag)
+{
+	char *buf = (char *)malloc(CFG_ENV_SIZE);
+	ulong crc;
+	int i;
+
+	if (!buf) {
+		printf("## env-crc[%s]: no mem\n", tag);
+		return;
+	}
+	if (raspi_read(buf, CFG_ENV_ADDR - CFG_FLASH_BASE, CFG_ENV_SIZE)
+	    != CFG_ENV_SIZE) {
+		printf("## env-crc[%s]: read FAILED\n", tag);
+		free(buf);
+		return;
+	}
+	crc = crc32(0, (const unsigned char *)buf, CFG_ENV_SIZE);
+	printf("## env-crc[%s]: 0x%08lX (0x%08X..0x%08X)\n", tag,
+	       crc, (unsigned)CFG_ENV_ADDR,
+	       (unsigned)(CFG_ENV_ADDR + CFG_ENV_SIZE - 1));
+	/* 头 64 字节 = CRC(4) + 前若干条目, 可看条目名判断有无凭证类键 */
+	for (i = 0; i < 64; i += 16) {
+		int j;
+		printf("  %08X:", (unsigned)(CFG_ENV_ADDR + i));
+		for (j = 0; j < 16; j++)
+			printf(" %02X", (unsigned char)buf[i + j]);
+		printf("  |");
+		for (j = 0; j < 16; j++) {
+			unsigned char c = buf[i + j];
+			printf("%c", (c >= 0x20 && c <= 0x7e) ? c : '.');
+		}
+		printf("|\n");
+	}
+	free(buf);
+}
+
+/*
+ * 工厂式 TFTP 安装: TFTP 下载 bootfile -> 烧写 flash 内核分区。
+ * 只做「下载 + 写 flash」, 不 bootm —— 由调用者(倒计时 reset 分级)决定
+ * 写完后直接启动新固件。流程 = 菜单 case '2' 的无确认、无 bootm 版。
+ * 返回: 0=下载并写入成功; -1=下载失败/网络不通/0字节(flash 未动)。
+ * 网络重试次数由 net.c/tftp.c 的 ARP_TIMEOUT_COUNT / TIMEOUT_COUNT(均=3) 控制。
+ */
+int board_tftp_install_kernel(void)
+{
+	cmd_tbl_t *cmdtp_tftp;
+	char *argv_tftp[4];
+	char addr_ram[16];
+	char fname[ARGV_LEN];
+	unsigned int load_address;
+
+	cmdtp_tftp = find_cmd("tftpboot");
+	if (!cmdtp_tftp) {
+		printf("## tftp-install:tftpboot command unavailable, abort\n");
+		return -1;
+	}
+
+	strcpy(addr_ram, "0x80100000");
+	load_address = simple_strtoul(addr_ram, NULL, 16);
+
+	memset(fname, 0, ARGV_LEN);
+	/* 优先用环境变量 bootfile(默认 CONFIG_BOOTFILE), 便于现场改名 */
+	{
+		char *bf = getenv("bootfile");
+		if (bf && bf[0])
+			strncpy(fname, bf, ARGV_LEN - 1);
+		else
+			strncpy(fname, CONFIG_BOOTFILE, ARGV_LEN - 1);
+	}
+
+	argv_tftp[0] = "tftpboot";
+	argv_tftp[1] = addr_ram;
+	argv_tftp[2] = fname;
+	argv_tftp[3] = NULL;
+
+	setenv("autostart", "no");	/* 只下载, 不在 netboot_common 里 bootm */
+	setenv("bootfile", fname);
+	/* 关键: TFTP 失败(File not found / 无服务器 / 超时)时, NetLoop 默认走
+	 * NetStartAgain() 无限重试, 永不返回, 无法回退本地启动。设 netretry=no
+	 * 让 NetLoop 失败即返回 -1。用完恢复 yes 以免污染。 */
+	setenv("netretry", "no");
+
+	printf("## tftp-install:TFTP %s <- %s -> 0x%08X (retry 3)...\n",
+	       fname,
+	       getenv("serverip") ? getenv("serverip") : "(serverip?)",
+	       load_address);
+
+	if (do_tftpb(cmdtp_tftp, 0, 3, argv_tftp) != 0) {
+		setenv("netretry", "yes");
+		printf("## tftp-install:TFTP download FAILED (file not found / no server / timeout), "
+		       "flash untouched -> fallback to local boot.\n");
+		return -1;
+	}
+	setenv("netretry", "yes");
+	if (NetBootFileXferSize == 0) {
+		printf("## tftp-install:TFTP transferred 0 bytes, flash untouched.\n");
+		return -1;
+	}
+
+	printf("## tftp-install:erase+write %lu bytes to flash kernel @ 0x%08X ...\n",
+	       (ulong)NetBootFileXferSize, (unsigned)CFG_KERN_ADDR);
+
+	{
+		int wr;
+		wr = raspi_erase_write((char *)load_address, CFG_KERN_ADDR - CFG_FLASH_BASE,
+				       (int)NetBootFileXferSize);
+		if (wr != 0) {
+			printf("## tftp-install:raspi_erase_write FAILED (rc=%d), flash untouched -> fallback.\n", wr);
+			return -1;
+		}
+	}
+
+	printf("## tftp-install:image written to flash kernel OK\n");
+	return 0;
+}
+
+/*
+ * 启动前校验 flash 里的内核 uImage (CFG_KERN_ADDR), 供升级路径判断。
+ * 校验 magic / header CRC / data CRC；任一不过即判为固件损坏/缺失。
+ * 读法与 bootm 一致: 经 raspi_read(SPI 命令模式)搬到 RAM 再校验,
+ * 不能 mmap(0xBC..) 直读 —— mmap 读大块数据不可靠, data CRC 必误判。
+ */
+int board_kernel_image_ok(void)
+{
+	image_header_t hdr;
+	ulong hcrc, len, dcrc;
+	ulong crc = 0;
+	char *p = (char *)malloc(64 * 1024);
+
+	if (!p) {
+		printf("## kern-check: no mem\n");
+		return 0;
+	}
+
+	/* 头部: raspi_read 64 字节 */
+	if (raspi_read((char *)&hdr, CFG_KERN_ADDR - CFG_FLASH_BASE, sizeof(image_header_t))
+	    != sizeof(image_header_t)) {
+		printf("## kern-check: header read FAILED\n");
+		free(p);
+		return 0;
+	}
+
+	if (ntohl(hdr.ih_magic) != IH_MAGIC) {		/* 1) magic */
+		printf("## kern-check: bad magic (%08x)\n", ntohl(hdr.ih_magic));
+		free(p);
+		return 0;
+	}
+
+	hcrc = ntohl(hdr.ih_hcrc);			/* 2) header CRC (通过后 ih_size 才可信) */
+	hdr.ih_hcrc = 0;
+	if (crc32(0, (const unsigned char *)&hdr, sizeof(image_header_t)) != hcrc) {
+		printf("## kern-check: header CRC fail\n");
+		free(p);
+		return 0;
+	}
+
+	len = ntohl(hdr.ih_size);			/* 3) data CRC */
+	dcrc = ntohl(hdr.ih_dcrc);
+	/* 分块读 + 增量 CRC(64KB 缓冲): crc32 支持续算 */
+	{
+		ulong off = CFG_KERN_ADDR - CFG_FLASH_BASE + sizeof(image_header_t);
+		ulong left = len;
+		while (left > 0) {
+			int chunk = (left > 64 * 1024) ? 64 * 1024 : (int)left;
+			if (raspi_read(p, off, chunk) != chunk) {
+				printf("## kern-check: data read FAILED (off=%lu)\n", off);
+				free(p);
+				return 0;
+			}
+			crc = crc32(crc, (const unsigned char *)p, chunk);
+			off += chunk;
+			left -= chunk;
+		}
+	}
+	if (crc != dcrc) {
+		printf("## kern-check: data CRC fail (len=%lu)\n", len);
+		free(p);
+		return 0;
+	}
+
+	free(p);
+	return 1;
+}
+
+#endif /* BOARD_AX1800 && CFG_ENV_IS_IN_SPI */
 
 int tftp_config(int type, char *argv[])
 {
@@ -2019,6 +2238,11 @@ void board_init_r (gd_t *id, ulong dest_addr)
 	    s = getenv ("bootdelay");
 	    timer1 = s ? (int)simple_strtol(s, NULL, 10) : CONFIG_BOOTDELAY;
 	}
+#if defined(BOARD_AX1800)
+	/* Initialize GPIO (AX1800: pinmux 切 GPIO + reset/hdog/usbpower/sysLed 初始化) */
+	gpio_init();
+#endif
+
 #ifdef GPIO_TEST
     gpio_test();
 #endif
@@ -2027,16 +2251,92 @@ void board_init_r (gd_t *id, ulong dest_addr)
     init_power_led();
     control_power_led(0);
 #endif
-    
+
     printBanner();
 	OperationSelect();
- 
+
 #ifdef OLED_1_3
     oled_uboot_start();
 #endif
 
+#ifndef BOARD_AX1800
     init_wps();
-	
+#endif
+
+#if defined(BOARD_AX1800)
+	/* AX1800: reset 键分级入口(GPIO#16, 长按计时, 与 mt7628_uboot_web 流程一致):
+	 *   < 3s / 未按        正常启动(倒计时 + 串口菜单照旧)
+	 *   3s ~ 8s 松手       httpd web 升级(入口确认: 慢闪 3 下, 电脑连 10.10.10.1)
+	 *   > 8s 松手/按住     工厂式 TFTP 安装(入口确认: 快闪 6 下, 拉取 bootfile) */
+	{
+		int counter = 0;
+		int k;
+
+		udelay(500000);		/* 等 0.5s 电平稳定再检测 */
+		wdt_gpio_kick();	/* 进入按键检测前喂狗(按键最长可按 8s+) */
+		printf("RESET button: hold 3~8s -> web server (httpd), hold >8s -> tftp-install\n");
+
+		if (DETECT_BTN_RESET()) {
+			printf("RESET button is pressed for: %2d second(s)", counter);
+			while (DETECT_BTN_RESET()) {
+				/* 按住期间 run 灯(sysLed)慢节奏闪: 亮 0.2s 灭 0.8s */
+				LED_STATUS(RUN_LED, LED_ON);
+				udelay(200000);
+				LED_STATUS(RUN_LED, LED_OFF);
+				udelay(800000);
+				counter++;
+				printf("\b\b\b\b\b\b\b\b\b\b\b\b%2d second(s)", counter);
+				if (!DETECT_BTN_RESET()) {
+					break;
+				}
+			}
+			LED_STATUS(RUN_LED, LED_OFF);
+		}
+
+		if (counter >= 8) {
+			printf("\n\nRESET button was pressed for %d seconds\nTFTP factory install starting...\n\n", counter);
+			/* 入口确认闪烁: 快闪 6 下(亮灭各 100ms) = 进 TFTP 安装 */
+			for (k = 0; k < 6; k++) {
+				LED_STATUS(RUN_LED, LED_ON);
+				udelay(100000);
+				LED_STATUS(RUN_LED, LED_OFF);
+				udelay(100000);
+			}
+			/* 5 口全划 LAN, 用户接任一口均可 */
+			ALL_LANPartition();
+			/* 工厂式 TFTP 安装: 成功后直接 bootm 启动新固件;
+			 * 失败(无服务器/超时) flash 未动, 回退正常启动流程 */
+			if (board_tftp_install_kernel() == 0) {
+				char *argv_b[2];
+				char addr_b[16];
+				wdt_gpio_kick();	/* 启动内核前喂狗(解压可达数十秒) */
+				sprintf(addr_b, "0x%X", CFG_KERN_ADDR);
+				argv_b[1] = &addr_b[0];
+				printf("   \nTFTP install OK, boot new firmware.\n");
+				do_bootm(cmdtp, 0, 2, argv_b);
+			}
+			printf("## tftp-install failed, fallback to normal boot\n");
+		} else if (counter >= 3) {
+			printf("\n\nRESET button was pressed for %d seconds\nHTTP server is starting for firmware update...\n\n", counter);
+			/* 入口确认闪烁: 慢闪 3 下(亮灭各 250ms) = 进 httpd web 升级 */
+			for (k = 0; k < 3; k++) {
+				LED_STATUS(RUN_LED, LED_ON);
+				udelay(250000);
+				LED_STATUS(RUN_LED, LED_OFF);
+				udelay(250000);
+			}
+			/* 5 口全划 LAN, 用户接任一口均可 */
+			ALL_LANPartition();
+			/* 进 httpd web 升级(电脑连 10.10.10.1); 升级完成 do_reset 重启 */
+			NetLoopHttpd();
+			/* httpd 返回(未升级/失败): 回退正常启动 */
+			printf("## httpd exited, fallback to normal boot\n");
+		} else if (counter > 0) {
+			printf("\n\nRESET button wasn't pressed long enough (%ds < 3s), continuing normal boot...\n\n", counter);
+		}
+	}
+#endif /* BOARD_AX1800 */
+
     while (timer1 > 0) {
 #ifdef OLED_1_3
         oled_timeout(timer1);
@@ -2044,6 +2344,7 @@ void board_init_r (gd_t *id, ulong dest_addr)
 		--timer1;
 		/* delay 100 * 10ms */
 		for (i=0; i<100; ++i) {
+#ifndef BOARD_AX1800
             if(readwps() == 0){
                 BootType = '5';
 #ifdef LED_POWER
@@ -2051,6 +2352,7 @@ void board_init_r (gd_t *id, ulong dest_addr)
 #endif
                 break;
             }
+#endif /* !BOARD_AX1800 */
 
 
 			if ((my_tmp = tstc()) != 0) {	/* we got a key press	*/
