@@ -1,9 +1,17 @@
 #!/bin/bash
 #
-# AX1800 (MT7621A + DDR3 256MB + SPI NOR 32MB) 一键构建
+# AX1800 (MT7621A + DDR3 128MB/256MB + SPI NOR 32MB) 一键构建
 #
-# 用法:
-#   ./build.sh ax1800        # 输出 uboot_ax1800_256M_4300_buildYYYYMMDDHH.bin
+# 用法(通用名 mt7621_xxxM 与 ax1800_xxxM 等价, 都用 AX1800 的配置, 只是产物名不同):
+#   ./build.sh ax1800          # = ax1800_256M, 输出 uboot_ax1800_256M_4300_buildYYYYMMDDHH.bin
+#   ./build.sh ax1800_256M     # 同上
+#   ./build.sh ax1800_128M     # 输出 uboot_ax1800_128M_4300_buildYYYYMMDDHH.bin
+#   ./build.sh mt7621_256M     # .config_ax1800_256M, 输出 uboot_mt7621_256M_4300_buildYYYYMMDDHH.bin
+#   ./build.sh mt7621_128M     # .config_ax1800_128M, 输出 uboot_mt7621_128M_4300_buildYYYYMMDDHH.bin
+#
+# DDR 颗粒容量是编译期固定(ON_BOARD_xxxM_DRAM_COMPONENT + DDR_CHIP -> ddr_param 段),
+# 不是自适应: 128MB 板必须烧 ax1800_128M 产物, 256MB 板必须烧 ax1800_256M 产物,
+# 不能混用(stage 的 "Auto-Detection" 只自动识别 DDR2/DDR3 与做时序校准)。
 #
 # 流程: 预设 .config -> 自动生成 autoconf.h(免 menuconfig 交互)
 #       -> make (uboot.bin = 主uboot + stage_sram + DDR参数拼装) -> 产物归档
@@ -16,15 +24,28 @@
 #   按住 reset 上电 3~8s 松手 -> httpd web 升级 (电脑 10.10.10.3 访问 10.10.10.1)
 #   按住 reset 上电 >8s 松手  -> TFTP 工厂安装 (服务器 10.10.10.3, 文件
 #                               mt7621-squashfs-sysupgrade.bin)
+#   倒计时内输 666 -> 命令行: httpd(刷 web) / tftpflash(刷 TFTP) / tftp(只下载)
 
 product=${1:-ax1800}
 
-if [ "$product" != "ax1800" ]; then
-    echo "[ERROR] 未知产品: $product (当前仅支持 ax1800)"
-    exit 1
-fi
+# 通用名 mt7621_xxxM 与 ax1800_xxxM 同配置; cfg 一律取 AX1800 预设, 产物名按用户输入的名
+case "$product" in
+    ax1800|ax1800_256M|mt7621_256M)
+        size=256M
+        ;;
+    ax1800_128M|mt7621_128M)
+        size=128M
+        ;;
+    *)
+        echo "[ERROR] 未知产品: $product (支持 ax1800 / ax1800_256M / ax1800_128M / mt7621_256M / mt7621_128M)"
+        exit 1
+        ;;
+esac
 
-cfg=".config_${product}_256M"
+name=$product
+[ "$name" = "ax1800" ] && name=ax1800_256M	# 无参/ax1800 沿用带容量的产物名, 与历史一致
+cfg=".config_ax1800_${size}"
+ddr="DDR3 ${size%%M}MB"
 if [ ! -f "$cfg" ]; then
     echo "[ERROR] 配置文件不存在: $cfg"
     exit 1
@@ -60,7 +81,7 @@ sed -i "s|^CONFIG_CROSS_COMPILER_PATH=.*|CONFIG_CROSS_COMPILER_PATH=\"$TOOLCHAIN
 } > autoconf.h
 echo "==> autoconf.h 生成完毕: $(wc -l < autoconf.h) 行"
 
-echo "==> will build $product (MT7621A, DDR3 256MB, SPI NOR 32MB, 880MHz)"
+echo "==> will build $name ($cfg, MT7621A, $ddr, SPI NOR 32MB, 880MHz)"
 sleep 1
 make clean > /dev/null 2>&1
 # 注: 不用 -j 并行 —— Makefile 的 all: clean $(ALL) 在并行下 clean 会与
@@ -73,7 +94,7 @@ if [ ! -f uboot.bin ]; then
 fi
 
 build_date=$(date +%Y%m%d%H)
-out="uboot_${product}_256M_4300_build${build_date}.bin"
+out="uboot_${name}_4300_build${build_date}.bin"
 echo "==> copy uboot.bin -> $out ($(stat -c %s uboot.bin) bytes)"
 cp -f uboot.bin "$out"
 mkdir -p /mnt/share_file/uboot
