@@ -2288,10 +2288,10 @@ void board_init_r (gd_t *id, ulong dest_addr)
 		if (DETECT_BTN_RESET()) {
 			printf("RESET button is pressed for: %2d second(s)", counter);
 			while (DETECT_BTN_RESET()) {
-				/* 按住期间 run 灯(sysLed)慢节奏闪: 亮 0.2s 灭 0.8s */
-				LED_STATUS(RUN_LED, LED_ON);
+				/* 按住期间 wan 灯(GPIO15)慢节奏闪: 亮 0.2s 灭 0.8s(sysLed 保持常亮) */
+				LED_STATUS(WAN_LED, LED_ON);
 				udelay(200000);
-				LED_STATUS(RUN_LED, LED_OFF);
+				LED_STATUS(WAN_LED, LED_OFF);
 				udelay(800000);
 				counter++;
 				printf("\b\b\b\b\b\b\b\b\b\b\b\b%2d second(s)", counter);
@@ -2299,7 +2299,7 @@ void board_init_r (gd_t *id, ulong dest_addr)
 					break;
 				}
 			}
-			LED_STATUS(RUN_LED, LED_OFF);
+			LED_STATUS(WAN_LED, LED_OFF);
 		}
 
 #if (CONFIG_COMMANDS & CFG_CMD_NET)
@@ -2312,11 +2312,11 @@ void board_init_r (gd_t *id, ulong dest_addr)
 
 		if (counter >= 8) {
 			printf("\n\nRESET button was pressed for %d seconds\nTFTP factory install starting...\n\n", counter);
-			/* 入口确认闪烁: 快闪 6 下(亮灭各 100ms) = 进 TFTP 安装 */
+			/* 入口确认闪烁(wan 灯): 快闪 6 下(亮灭各 100ms) = 进 TFTP 安装 */
 			for (k = 0; k < 6; k++) {
-				LED_STATUS(RUN_LED, LED_ON);
+				LED_STATUS(WAN_LED, LED_ON);
 				udelay(100000);
-				LED_STATUS(RUN_LED, LED_OFF);
+				LED_STATUS(WAN_LED, LED_OFF);
 				udelay(100000);
 			}
 			/* 5 口全划 LAN, 用户接任一口均可 */
@@ -2327,6 +2327,7 @@ void board_init_r (gd_t *id, ulong dest_addr)
 				char *argv_b[2];
 				char addr_b[16];
 				wdt_gpio_kick();	/* 启动内核前喂狗(解压可达数十秒) */
+				LED_STATUS(WAN_LED, LED_OFF);	/* 升级流程结束, wan 灯灭 */
 				sprintf(addr_b, "0x%X", CFG_KERN_ADDR);
 				argv_b[1] = &addr_b[0];
 				printf("   \nTFTP install OK, boot new firmware.\n");
@@ -2335,11 +2336,11 @@ void board_init_r (gd_t *id, ulong dest_addr)
 			printf("## tftp-install failed, fallback to normal boot\n");
 		} else if (counter >= 3) {
 			printf("\n\nRESET button was pressed for %d seconds\nHTTP server is starting for firmware update...\n\n", counter);
-			/* 入口确认闪烁: 慢闪 3 下(亮灭各 250ms) = 进 httpd web 升级 */
+			/* 入口确认闪烁(wan 灯): 慢闪 3 下(亮灭各 250ms) = 进 httpd web 升级 */
 			for (k = 0; k < 3; k++) {
-				LED_STATUS(RUN_LED, LED_ON);
+				LED_STATUS(WAN_LED, LED_ON);
 				udelay(250000);
-				LED_STATUS(RUN_LED, LED_OFF);
+				LED_STATUS(WAN_LED, LED_OFF);
 				udelay(250000);
 			}
 			/* 5 口全划 LAN, 用户接任一口均可 */
@@ -2355,11 +2356,11 @@ void board_init_r (gd_t *id, ulong dest_addr)
 #endif /* BOARD_AX1800 */
 
 #if defined(BOARD_AX1800)
-	/* 倒计时阶段 run 灯常亮(同 mt7628_uboot_web abortboot 入口): 表示正在启动;
-	 * 按键检测松手后是灭的, 这里显式点亮, 之后进 httpd/TFTP 再由各自状态机接管 */
-	LED_STATUS(RUN_LED, LED_ON);
-	/* 倒计时提示: 只认 "666" 进命令行(同 mt7628_uboot_web), 其他按键不打断 */
-	printf("\nWaiting time: %d s (type '666' to run console: http / tftp )\n\n", timer1);
+	/* 倒计时阶段无需再动灯: sysLed(GPIO17) 自 gpio_init 起常亮; wan 灯(GPIO15)
+	 * 在按键松手时已灭, 之后进 httpd/TFTP 再由各自状态机驱动。
+	 * 倒计时提示: 只认 "666" 进命令行(同 mt7628_uboot_web), 其他按键不打断;
+	 * 括号里列出命令行里真正能用的升级命令名(httpd 刷 web / tftpflash 刷 TFTP) */
+	printf("\nWaiting time: %d s (type '666' to run console: httpd / tftpflash / tftp )\n\n", timer1);
 #endif
     while (timer1 > 0) {
 #ifdef OLED_1_3

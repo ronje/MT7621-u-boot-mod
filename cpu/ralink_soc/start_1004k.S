@@ -307,6 +307,33 @@ check_nmi: # Verify we are here due to a reset (and not NMI.)
 	and	t1, t1, t2
 	sw	t1, 0(t0)
 #endif
+#if defined(BOARD_AX1800)
+	/* AX1800 USB 供电最早切断点(GPIO13, 低=上电 -> 拉高=断电)。复位后 GPIO13 处于 JTAG
+	 * 复用(JTDO), PIO 寄存器写不到引脚: 先把 GPIOMODE 的 JTAG 组(bit7, GPIO13~17)切成
+	 * GPIO 模式, 再把 GPIO13 置输出并拉高; 顺带把 GPIO15(wan)/GPIO17(sysLed) 置输出高
+	 * (=灭), 避免切 GPIO 后这两脚悬空乱亮。GPIO14(hdog)/GPIO16(reset 键)不动, 留给
+	 * gpio_init 分别置输出低/输入。uboot 全程断电, 由 OS 决定何时上电(同 mt7628_uboot_web
+	 * 对模组电源的处理); gpio_init 会再确认一次方向/电平。
+	 * PIO 偏移(MT7621): DIR +0x00, DATA +0x20, SET +0x30, RESET +0x40。 */
+	li	t0, RALINK_GPIOMODE_REG
+	lw	t1, 0(t0)
+	nop
+	li	t2, (1<<7)
+	or	t1, t1, t2
+	sw	t1, 0(t0)
+	nop
+	li	t0, RALINK_PIO_BASE + 0x00	/* PIODIR */
+	lw	t1, 0(t0)
+	nop
+	li	t2, (1<<13)|(1<<15)|(1<<17)
+	or	t1, t1, t2
+	sw	t1, 0(t0)
+	nop
+	li	t0, RALINK_PIO_BASE + 0x30	/* PIOSET */
+	li	t1, (1<<13)|(1<<15)|(1<<17)	/* GPIO13 高=USB 断电; 15/17 高=灯灭 */
+	sw	t1, 0(t0)
+	nop
+#endif
     mfc0    r4_temp_data, $12                   # Read CP0 Status
     srl     r4_temp_data, 19                    # Shift [NMI] into LSBs.
     andi    r4_temp_data, r4_temp_data, 1       # Inspect CP0 Config[AT]

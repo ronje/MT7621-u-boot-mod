@@ -119,8 +119,8 @@ static void httpd_download_progress( void ){
 	 * 不触发 webfailsafe_post_done(看不到 "HTTP upload is done! Upgrading...")。
 	 * 节流后串口负载降为 1/N, 不再饿死收包; 换行按 '#' 计(每 32 个 '#' 换行),
 	 * 不再按包计数(40 包只有 40/16≈2.5 个 '#', 每行 2-3 个 '#' 就断行难看)。
-	 * 注: 原 post_line_counter 到 10 时 wan_led_toggle() 已删 —— WAN_LED 与 RUN_LED
-	 * 同一脚, 上传期间 RUN 灯快闪由 NetLoopHttpd 主循环 run_led_heartbeat 统一驱动。 */
+	 * 注: 原 post_line_counter 到 10 时 wan_led_toggle() 已删 —— 上传期间 wan 灯(GPIO15)
+	 * 快闪由 NetLoopHttpd 主循环 run_led_heartbeat 统一驱动, 不要在收包路径上再各自翻转。 */
 	static unsigned int print_div = 0;
 	static unsigned char hash_cnt = 0;
 

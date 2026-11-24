@@ -27,9 +27,11 @@
 /* AX1800 (MT7621) GPIO 映射(全部落在 JTAG 复用组 GPIO13~17):
  *   GPIO_BTN_RESET  16  复位键, 低有效, 长按分级入口(3~8s=httpd / >8s=TFTP)
  *   GPIO_HW_WDT     14  硬件看门狗喂狗端, 2 分钟内需一个 ≥50ms 高电平脉冲
- *   GPIO_USBPOWER   13  USB 口供电, 低=上电(on 0), uboot 阶段保持供电
- *   RUN_LED=17      sysLed, 默认低=亮(GPIO_LED_INVERTED 可整体翻转)
- *   wwan1Led=15 / wwan2Led=18: 由 Linux 驱动, uboot 不占用(-1)
+ *   GPIO_USBPOWER   13  USB 口供电, 低=上电(on 0); uboot 全程断电(高), OS 上电
+ *   RUN_LED=17      sysLed, uboot 全程常亮, 默认低=亮(GPIO_LED_INVERTED 可整体翻转)
+ *   WAN_LED=15      wan 灯, 升级状态灯(按住 reset 慢闪/入口确认/TFTP 下载慢闪/httpd 等待常亮/
+ *                   上传与写 flash 快闪/校验失败三短一长), run_led_heartbeat 驱动它
+ *   wwan2Led=18: 由 Linux 驱动, uboot 置输出+灭(WWAN2_LED)
  * 注: GPIO18 在 WDT 复用组; gpio_init 的 gm 统一把 JTAG/WDT 组切 GPIO 模式。 */
 #define GPIO_BTN_RESET	16
 #define GPIO_USBPOWER	13
@@ -600,14 +602,16 @@ void gpio_init(void)
 #endif
 #endif
 
-	/* AX1800: USB 口供电(GPIO13, 低=上电), uboot 阶段保持供电, 由 OS 接管 */
+	/* AX1800: USB 口供电(GPIO13, 低=上电)。uboot 阶段一律断电(拉高), 由 OS 决定何时
+	 * 上电(同 mt7628_uboot_web 对模组电源的处理)。start.S 已在最早切断点把 JTAG 组切
+	 * GPIO 并拉高; 这里切完模式后再确认一次输出方向+高电平。 */
 #if defined(GPIO_USBPOWER)
 #if (GPIO_USBPOWER >= 0)
-	printf("Board: %s (GPIO%d usb power %s=on), keep power ON in uboot\n",
+	printf("Board: %s (GPIO%d usb power %s=on), keep power OFF in uboot\n",
 		BOARD_NAME_STR, GPIO_USBPOWER,
 		GPIO_USBPOWER_ON_LEVEL ? "high" : "low");
 	mtk_set_gpio_dir(GPIO_USBPOWER, GPIO_DIR_OUTPUT);
-	mtk_set_gpio_pin(GPIO_USBPOWER, GPIO_USBPOWER_ON_LEVEL);
+	mtk_set_gpio_pin(GPIO_USBPOWER, !GPIO_USBPOWER_ON_LEVEL);
 #else
 	printf("Board: %s (usb power not driven by uboot)\n", BOARD_NAME_STR);
 #endif
@@ -621,15 +625,16 @@ void gpio_init(void)
 
 #if defined(BOARD_AX1800)
 	/* LED 方向必须显式置输出: mtk_set_gpio_pin() 只写 SET/RESET 不改方向, 而本树
-	 * LED_INIT() 从未被调用, sysLed(GPIO17)切 GPIO 模式后一直是输入 -> 所有 LED_STATUS /
+	 * LED_INIT() 从未被调用, 引脚切 GPIO 模式后一直是输入 -> 所有 LED_STATUS /
 	 * run_led_heartbeat 写入全部落空, 灯永远不亮。这里补齐(同 mt7628_uboot_web 在
 	 * main.c 入口调 LED_INIT 的语义):
-	 *   sysLed(RUN_LED) 先灭, 倒计时阶段再常亮;
-	 *   wwan1(15)/wwan2(18) 由 Linux 驱动, 复用组切 GPIO 后显式置输出+灭, 防悬空乱亮。 */
+	 *   sysLed(GPIO17) uboot 全程常亮, 内核起来后由系统接管;
+	 *   wan(GPIO15) 升级状态灯, 上电先灭, 进升级流程后由各状态机驱动;
+	 *   wwan2(GPIO18) 由 Linux 驱动, 复用组切 GPIO 后显式置输出+灭, 防悬空乱亮。 */
 	mtk_set_gpio_dir(RUN_LED, GPIO_DIR_OUTPUT);
-	mtk_set_gpio_pin(RUN_LED, GPIO_VAL_LED_HIDE);
-	mtk_set_gpio_dir(WWAN1_LED, GPIO_DIR_OUTPUT);
-	mtk_set_gpio_pin(WWAN1_LED, GPIO_VAL_LED_HIDE);
+	mtk_set_gpio_pin(RUN_LED, GPIO_VAL_LED_SHOW);
+	mtk_set_gpio_dir(WAN_LED, GPIO_DIR_OUTPUT);
+	mtk_set_gpio_pin(WAN_LED, GPIO_VAL_LED_HIDE);
 	mtk_set_gpio_dir(WWAN2_LED, GPIO_DIR_OUTPUT);
 	mtk_set_gpio_pin(WWAN2_LED, GPIO_VAL_LED_HIDE);
 #endif
@@ -689,11 +694,12 @@ void wan_led_toggle(void)
 	mtk_set_gpio_pin(WAN_LED, !st);
 }
 
-/* run 灯心跳(慢闪/快闪): 由倒计时/NetLoop/raspi 擦写等轮询点周期性调用。
+/* 升级状态灯(WAN_LED=GPIO15)心跳(慢闪/快闪): 由 NetLoop TFTP 下载 / httpd 收包上传 /
+ * raspi 擦写等轮询点周期性调用。sysLed(RUN_LED)不参与闪烁, 全程常亮。
  * 用 get_timer 防抖, 到 period_ms 才翻转一次 -> 与调用频率解耦。
  * 翻转用内部状态变量, 不读回引脚 —— PIO 的 DATA(0x20) 读的是引脚
  * 实际电平, 低有效 LED + 外部驱动场合读回值可能恒定, "读回取反"式
- * 翻转会退化成恒写同一电平。RUN_LED<0(无该灯)时空操作。
+ * 翻转会退化成恒写同一电平。WAN_LED<0(无该灯)时空操作。
  * 计时注意: 本树 get_timer() 返回 CP0 Count 原始计数而非 ms, 先做无符号差
  * (处理回绕)再经 ticks_to_ms 换算; 原直接比 period_ms 实为微秒级翻转,
  * 慢闪/快闪都退化成每次调用必翻。 */
@@ -703,13 +709,13 @@ void run_led_heartbeat(unsigned int period_ms)
 	static int led_on = 0;		/* 内部状态, 与硬件输出同步 */
 	unsigned long elapsed_ms;
 
-	if (RUN_LED < 0)
+	if (WAN_LED < 0)
 		return;
 
 	elapsed_ms = ticks_to_ms(get_timer(last_tick));
 	if (elapsed_ms >= period_ms) {
 		led_on = !led_on;
-		mtk_set_gpio_pin(RUN_LED, led_on);
+		mtk_set_gpio_pin(WAN_LED, led_on);
 		last_tick = get_timer(0);
 	}
 }
@@ -734,8 +740,8 @@ void wdt_gpio_kick(void)
 #endif
 }
 
-/* 错误指示: RUN 灯"三短一长"循环闪烁(SOS 风格, 长亮 800ms 短亮 200ms,
- * 各间隔 200ms, 组间停 1s)。
+/* 错误指示: WAN 灯(GPIO15)"三短一长"循环闪烁(SOS 风格, 长亮 800ms 短亮 200ms,
+ * 各间隔 200ms, 组间停 1s)。sysLed(RUN_LED)保持常亮不动。
  * 用途: bootm 校验失败(Bad Data CRC)等致命错误掉回命令行后, 命令行
  * readline 等待输入时无人驱动 LED(heartbeat 是被动轮询), 用本函数
  * 主动阻塞闪烁, 现场看灯即知"固件损坏, 停在命令行"。
@@ -745,7 +751,7 @@ void run_led_error_blink(void)
 {
 	int cycle;
 
-	if (RUN_LED < 0) {
+	if (WAN_LED < 0) {
 		for (;;)
 			;
 	}
@@ -754,15 +760,15 @@ void run_led_error_blink(void)
 		int i;
 		/* 三短 */
 		for (i = 0; i < 3; i++) {
-			mtk_set_gpio_pin(RUN_LED, 1);
+			mtk_set_gpio_pin(WAN_LED, 1);
 			udelay(200 * 1000);
-			mtk_set_gpio_pin(RUN_LED, 0);
+			mtk_set_gpio_pin(WAN_LED, 0);
 			udelay(200 * 1000);
 		}
 		/* 一长 */
-		mtk_set_gpio_pin(RUN_LED, 1);
+		mtk_set_gpio_pin(WAN_LED, 1);
 		udelay(800 * 1000);
-		mtk_set_gpio_pin(RUN_LED, 0);
+		mtk_set_gpio_pin(WAN_LED, 0);
 		/* 组间停顿 */
 		udelay(1000 * 1000);
 	}

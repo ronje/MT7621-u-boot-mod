@@ -27,6 +27,7 @@
 #include <common.h>
 #include <command.h>
 #include <net.h>
+#include <gpio.h>	/* WAN_LED / LED_STATUS: tftpflash 升级结束灭 wan 灯 */
 #undef DEBUG
 #if (CONFIG_COMMANDS & CFG_CMD_NET)
 
@@ -286,6 +287,38 @@ U_BOOT_CMD(
 	"httpd\t - start http server\n",
 	NULL
 );
+
+#if defined(BOARD_AX1800)
+/* 命令行 TFTP 刷固件(等价 reset>8s 工厂式安装 / 原数字菜单 2):
+ * 下载 bootfile -> raspi_erase_write 写内核分区 -> 直接 bootm 启动新固件。
+ * 标准 `tftp` 命令只下载到 RAM(loadaddr)不写 flash, 要落盘用本命令。 */
+int do_tftpflash(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	extern int board_tftp_install_kernel(void);
+	extern void wdt_gpio_kick(void);
+	char *argv_b[2];
+	char addr_b[16];
+
+	if (board_tftp_install_kernel() != 0) {
+		printf("## tftpflash: FAILED (no server / file not found / write error), flash untouched\n");
+		return 1;
+	}
+
+	wdt_gpio_kick();	/* 启动内核前喂狗(解压可达数十秒) */
+	LED_STATUS(WAN_LED, LED_OFF);	/* 升级流程结束, wan 灯灭 */
+	sprintf(addr_b, "0x%X", CFG_KERN_ADDR);
+	argv_b[1] = &addr_b[0];
+	printf("   \ntftpflash OK, boot new firmware.\n");
+	do_bootm(cmdtp, 0, 2, argv_b);
+	return 0;
+}
+
+U_BOOT_CMD(
+	tftpflash,	1,	0,	do_tftpflash,
+	"tftpflash - TFTP download bootfile, write kernel partition, then boot\n",
+	NULL
+);
+#endif /* BOARD_AX1800 */
 
 #if (CONFIG_COMMANDS & CFG_CMD_CDP)
 

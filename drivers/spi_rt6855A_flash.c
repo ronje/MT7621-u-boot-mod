@@ -1433,7 +1433,7 @@ int raspi_write(char *buf, unsigned int to, int len)
 			 * 本函数(密集 page 循环)内不可靠(常亮), 而 E/V 段正常;
 			 * 直接寄存器写不受防抖/时基影响, 必定产生电平变化。 */
 			w_led = !w_led;
-			mtk_set_gpio_pin(RUN_LED, w_led);
+			mtk_set_gpio_pin(WAN_LED, w_led);
 		}
 
 		if (rc > 0) {

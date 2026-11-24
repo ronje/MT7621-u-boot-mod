@@ -1896,8 +1896,8 @@ int NetLoopHttpd(void){
 #endif
 	IPaddr_t x = ntohl(bd->bi_ip_addr);
 #if defined(BOARD_AX1800)
-	/* httpd 等待浏览器连接阶段 run 灯(sysLed)常亮 */
-	printf("Setting WAN_LED(sysLed) to SHOW for HTTPD server\n");
+	/* httpd 等待浏览器连接阶段 wan 灯(GPIO15)常亮; sysLed(GPIO17)全程常亮不动 */
+	printf("Setting WAN_LED(GPIO15) to SHOW for HTTPD server\n");
 	mtk_set_gpio_pin(WAN_LED, GPIO_VAL_LED_SHOW);
 #endif
 	/* XXX problem with bss workaround */
