@@ -133,9 +133,9 @@ static void BootpCopyNetParams(Bootp_t *bp)
 	 * don't delete exising entry when BOOTP / DHCP reply does
 	 * not contain a new value
 	 */
-	if (*BootFile) {
-		setenv ("bootfile", BootFile);
-	}
+	// if (*BootFile) {
+	// 	setenv ("bootfile", BootFile);
+	// }
 }
 
 static int truncate_sz (const char *name, int maxlen, int curlen)

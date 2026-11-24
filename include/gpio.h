@@ -9,37 +9,49 @@ enum led_status {
 enum led_gpio {
 #if defined(MT7621_MP)
 #  if defined(BOARD_AX1800)
-	/* AX1800 (MT7621) LED 映射:
-	 *   本板只有一颗受 uboot 控制的 LED = sysLed, 统一作 "run 灯"(RUN_LED):
-	 *     RUN_LED = WAN_LED = GPIO#17 (JTAG 复用组 GPIO13~17)
-	 *   默认低电平=亮(输出 0 点亮); 若硬件为高有效, 在 rt2880.h 定义
-	 *   GPIO_LED_INVERTED 即可整体翻转, 无需改代码。
-	 *   wwan1Led=GPIO#15 / wwan2Led=GPIO#18 由 Linux 驱动, uboot 不占用(-1)。
+	/* AX1800 (MT7621) GPIO/LED 映射:
+	 *   GPIO#16 reset 键(低有效) / GPIO#13 usbpower(低=上电) / GPIO#14 hdog 看门狗
+	 *     —— 见 drivers/gpio.c 的 GPIO_BTN_RESET / GPIO_USBPOWER / GPIO_HW_WDT。
+	 *   受 uboot 控制的 LED = sysLed GPIO#17, 统一作 "run 灯"(RUN_LED = WAN_LED = 17),
+	 *     默认低电平=亮(输出 0 点亮); 高有效时在 rt2880.h 定义 GPIO_LED_INVERTED 即可整体翻转。
+	 *   wwan1Led=GPIO#15 / wwan2Led=GPIO#18 由 Linux 驱动; 两脚所在的 JTAG/WDT 复用组
+	 *     被 gpio_init 统一切成 GPIO 模式后引脚失去默认驱动, uboot 阶段在 gpio_init 里
+	 *     显式置为输出+灭, 不参与任何 LED 状态机, 内核起来后由系统接管。
+	 *   POWER_LED=-1: 本板无独立 power 灯(rt2880.h 同时禁用 legacy LED_POWER 路径)。
 	 *   -1 经 is_valid_gpio_nr() 判为无效, mtk_set_gpio_* 为安全空操作。
-	 *   LED 行为(与 mt7628_uboot_web 流程一致, 由 RUN_LED 表达):
-	 *     按住 reset 检测期间慢闪; 入口确认闪烁; TFTP 下载慢闪;
-	 *     httpd 上传/写 flash 快闪; 内核启动后由系统接管。 */
+	 *   LED 行为(与 mt7628_uboot_web 状态表一致, 由 RUN_LED 表达):
+	 *     上电灭; 按住 reset 检测期间慢闪; 入口确认闪烁(网页 3 慢 / 强刷 6 快);
+	 *     启动倒计时/命令行常亮; TFTP 下载慢闪; httpd 等待常亮、上传/写 flash 快闪;
+	 *     bootm 校验失败三短一长; 内核启动后由系统接管。 */
 	POWER_LED=-1,
 	WAN_LED=17,
 	WLAN_LED=-1,
-	RUN_LED=17
+	RUN_LED=17,
+	WWAN1_LED=15,
+	WWAN2_LED=18
 #  else
 	/* FireWRT 原板: POWER LED = GPIO#22 (RGMII2 复用组) */
 	POWER_LED=22,
 	WAN_LED=22,
 	WLAN_LED=-1,
-	RUN_LED=22
+	RUN_LED=22,
+	WWAN1_LED=-1,
+	WWAN2_LED=-1
 #  endif
 #elif defined(MT7628_MP)
 	POWER_LED=0,
 	WAN_LED=0,
 	WLAN_LED=0,
-	RUN_LED=0
+	RUN_LED=0,
+	WWAN1_LED=-1,
+	WWAN2_LED=-1
 #else
 	POWER_LED=0,
 	WAN_LED=0,
 	WLAN_LED=0,
-	RUN_LED=0
+	RUN_LED=0,
+	WWAN1_LED=-1,
+	WWAN2_LED=-1
 #endif
 };
 

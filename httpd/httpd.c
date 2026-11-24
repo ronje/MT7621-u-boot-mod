@@ -75,11 +75,18 @@ static int data_start_found = 0;
  * 半截(无碍, 升级由串口 e/w/v 进度可见)。 */
 void httpd_upload_stall_check(void)
 {
+	ulong stalled_ms;
+
+	/* 本树 get_timer() 返回 CP0 Count 原始计数而非 ms(须经 ticks_to_ms 换算):
+	 * 原直接与 3000 比较, 实际 ~7us 即判超时 —— 上传一收齐就强制开始升级,
+	 * flashing 页还没发完就被掐断(浏览器停在半截)。 */
+	stalled_ms = ticks_to_ms(get_timer(webfailsafe_post_tick));
+
 	if (webfailsafe_post_done && webfailsafe_post_tick
 	    && !webfailsafe_upload_failed
-	    && (get_timer(webfailsafe_post_tick) > 3000)) {
+	    && (stalled_ms > 3000)) {
 		printf("## httpd: upload-finish ACK stalled %lu ms, forcing upgrade start\n",
-		       get_timer(webfailsafe_post_tick));
+		       stalled_ms);
 		webfailsafe_ready_for_upgrade = 1;
 		webfailsafe_post_done = 0;
 		webfailsafe_post_tick = 0;

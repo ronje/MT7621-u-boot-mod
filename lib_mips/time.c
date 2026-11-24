@@ -62,6 +62,15 @@ ulong get_timer(ulong base)
 	return mips_count_get() - base;
 }
 
+/* CP0 Count 原始计数 -> 毫秒。
+ * 本树 get_timer() 返回 mips_count_get() 差值(Count 按 CPU/2 递增), 不是 ms;
+ * 需要 ms 语义的调用点: 先 get_timer(base) 做无符号差(天然处理 32 位 Count
+ * 约 9.75s 一次的回绕), 再经此换算; 不要拿 get_timer 返回值直接当 ms 比较。 */
+ulong ticks_to_ms(ulong ticks)
+{
+	return ticks / ((mips_cpu_feq / 2) / 1000);
+}
+
 
 void udelay (unsigned long usec)
 {

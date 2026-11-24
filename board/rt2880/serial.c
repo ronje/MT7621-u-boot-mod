@@ -219,7 +219,11 @@ void serial_setbrg (void)
 #endif
 
 	IER(CFG_RT2880_CONSOLE) = 0;		/* Disable for now */
-	FCR(CFG_RT2880_CONSOLE) = 0;		/* No fifos enabled */
+	/* 开 16550 FIFO(bit0)并复位 RX/TX FIFO(bit1/bit2), 触发水位 1 字节(bit7:6=00,
+	 * LSR.DR 语义与不开 FIFO 时一致, tstc/getc 无需改)。原 FCR=0 不开 FIFO 时 RBR
+	 * 只存 1 字节: 连发多字节(倒计时输 666 解锁、粘贴、按键检测 0.5s 期间预敲)后到
+	 * 的字节全部溢出丢失只剩 1 个, 多字节序列永远收不齐, 单按键选择不受影响。 */
+	FCR(CFG_RT2880_CONSOLE) = 0x07;
 
 	/* set baud rate */
 	LCR(CFG_RT2880_CONSOLE) = LCR_WLS0 | LCR_WLS1 | LCR_DLAB;

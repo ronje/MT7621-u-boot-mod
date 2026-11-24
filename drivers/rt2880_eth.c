@@ -3300,6 +3300,25 @@ int readline (const char *const prompt, int show_buf)
 			show_activity(0);
 		}
 #endif
+#if defined(BOARD_AX1800)
+		/* 命令行空闲期间喂狗(补 mt7628_uboot_web 没覆盖的 CLI 阶段): 外置看门狗 2 分钟
+		 * 无脉冲即断电, 666 进 CLI 后停在提示符超过 2 分钟会被复位。getc() 是阻塞等
+		 * 串口, 这里先轮询等待: 每 60s kick 一次(kick 内部阻塞 100ms, 期间字节留在
+		 * 16 字节 RX FIFO 不丢), 有键再交给下面 getc 读取。计时经 ticks_to_ms 换算
+		 * (本树 get_timer 返回 CP0 Count 原始计数, 非 ms)。 */
+		{
+			extern void wdt_gpio_kick(void);
+			static unsigned long last_kick = 0;
+
+			while (!tstc()) {
+				if (ticks_to_ms(get_timer(last_kick)) >= 60000) {
+					wdt_gpio_kick();
+					last_kick = get_timer(0);
+				}
+				udelay(1000);
+			}
+		}
+#endif
 		c = getc();
 
 		/*

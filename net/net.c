@@ -2018,8 +2018,12 @@ restart:
 
 	// set network mask (AX1800: 255.255.255.0 / 其他: 255.255.0.0)
 #if defined(BOARD_AX1800)
+	/* uip_arp_netmask[1] 为 IP 第 3/4 字节, 第 3 字节在主机序高 8 位,
+	 * htons 按 uip.c 标准写法 HTONS((oct2 << 8) | oct3): 0xFF00 -> 255.255.255.0。
+	 * 原写 0x00FF 实为 255.255.0.255, uip_arp_out 判 PC(10.10.10.x) 非本网段
+	 * -> SYN-ACK 被换成对 255.255.255.255 的 ARP 请求丢弃, 浏览器永远连不上。 */
 	ip[0] = htons(0xFFFF);
-	ip[1] = htons (0x00FF);
+	ip[1] = htons(0xFF00);
 #else
 	ip[0] = htons(0xFFFF);
 	ip[1] = htons (0x0000);

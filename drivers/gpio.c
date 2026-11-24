@@ -618,6 +618,21 @@ void gpio_init(void)
 	mtk_set_gpio_dir(GPIO_HW_WDT, GPIO_DIR_OUTPUT);
 	mtk_set_gpio_pin(GPIO_HW_WDT, 0);
 #endif
+
+#if defined(BOARD_AX1800)
+	/* LED 方向必须显式置输出: mtk_set_gpio_pin() 只写 SET/RESET 不改方向, 而本树
+	 * LED_INIT() 从未被调用, sysLed(GPIO17)切 GPIO 模式后一直是输入 -> 所有 LED_STATUS /
+	 * run_led_heartbeat 写入全部落空, 灯永远不亮。这里补齐(同 mt7628_uboot_web 在
+	 * main.c 入口调 LED_INIT 的语义):
+	 *   sysLed(RUN_LED) 先灭, 倒计时阶段再常亮;
+	 *   wwan1(15)/wwan2(18) 由 Linux 驱动, 复用组切 GPIO 后显式置输出+灭, 防悬空乱亮。 */
+	mtk_set_gpio_dir(RUN_LED, GPIO_DIR_OUTPUT);
+	mtk_set_gpio_pin(RUN_LED, GPIO_VAL_LED_HIDE);
+	mtk_set_gpio_dir(WWAN1_LED, GPIO_DIR_OUTPUT);
+	mtk_set_gpio_pin(WWAN1_LED, GPIO_VAL_LED_HIDE);
+	mtk_set_gpio_dir(WWAN2_LED, GPIO_DIR_OUTPUT);
+	mtk_set_gpio_pin(WWAN2_LED, GPIO_VAL_LED_HIDE);
+#endif
 }
 
 void gpio_init_mdio(void)
@@ -678,21 +693,24 @@ void wan_led_toggle(void)
  * 用 get_timer 防抖, 到 period_ms 才翻转一次 -> 与调用频率解耦。
  * 翻转用内部状态变量, 不读回引脚 —— PIO 的 DATA(0x20) 读的是引脚
  * 实际电平, 低有效 LED + 外部驱动场合读回值可能恒定, "读回取反"式
- * 翻转会退化成恒写同一电平。RUN_LED<0(无该灯)时空操作。 */
+ * 翻转会退化成恒写同一电平。RUN_LED<0(无该灯)时空操作。
+ * 计时注意: 本树 get_timer() 返回 CP0 Count 原始计数而非 ms, 先做无符号差
+ * (处理回绕)再经 ticks_to_ms 换算; 原直接比 period_ms 实为微秒级翻转,
+ * 慢闪/快闪都退化成每次调用必翻。 */
 void run_led_heartbeat(unsigned int period_ms)
 {
-	static unsigned long last = 0;
+	static unsigned long last_tick = 0;
 	static int led_on = 0;		/* 内部状态, 与硬件输出同步 */
-	unsigned long now;
+	unsigned long elapsed_ms;
 
 	if (RUN_LED < 0)
 		return;
 
-	now = get_timer(0);
-	if ((now - last) >= period_ms) {
+	elapsed_ms = ticks_to_ms(get_timer(last_tick));
+	if (elapsed_ms >= period_ms) {
 		led_on = !led_on;
 		mtk_set_gpio_pin(RUN_LED, led_on);
-		last = now;
+		last_tick = get_timer(0);
 	}
 }
 

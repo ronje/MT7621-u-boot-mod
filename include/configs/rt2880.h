@@ -194,6 +194,14 @@ extern unsigned int  CFG_BLOCKSIZE;
 #define CFG_HTTP_DL_ADDR	0x80300000
 #if defined(RT6855A_FPGA_BOARD) || defined(RT6855A_ASIC_BOARD) || defined(MT7620_FPGA_BOARD) || defined(MT7620_ASIC_BOARD) || defined(MT7628_FPGA_BOARD) || defined(MT7628_ASIC_BOARD)
 #define CFG_SPINAND_LOAD_ADDR	0x80c00000
+#elif defined(MT7621_ASIC_BOARD) || defined(MT7621_FPGA_BOARD)
+/* MT7621: bootm 先把 flash 里的 lzma 内核整段读到本暂存区, 再由 LzmaDecode 解压到
+ * ih_load(0x80001000)起向上增长; 该解码器(非 _LZMA_OUT_READ)是边读输入边写输出,
+ * 暂存区离输出起点太近时, 输出指针追上尚未读取的输入流就自我覆盖 -> "LZMA ERROR 1"
+ * (而 Checksum 是对暂存副本算的, 仍显示 OK)。原 0x80500000 只容得下约 8MB 的解压
+ * 内核(AX1800 的 2.9MB lzma 内核解压后更大, 实测必失败)。MT7621 最小 64MB RAM,
+ * 暂存区抬到 48MB 处, 任何体积的内核输出都追不上。 */
+#define CFG_SPINAND_LOAD_ADDR	0x83000000
 #else
 #define CFG_SPINAND_LOAD_ADDR	0x80500000
 #endif
@@ -515,7 +523,9 @@ extern unsigned int  CFG_BLOCKSIZE;
  *   */
 #if 0
     #define OLED_1_3
-#else 
+#elif !defined(BOARD_AX1800)
+    /* AX1800 无独立 power 灯(gpio.h POWER_LED=-1): 禁用 legacy peripheral/led.c 的
+     * GPIO#22 power 灯路径 —— 它会把 RGMII2 复用组强切 GPIO 并驱动 GPIO22, 非本板引脚 */
     #define LED_POWER
 #endif
 //#define GPIO_TEST

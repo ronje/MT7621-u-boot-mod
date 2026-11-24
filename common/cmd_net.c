@@ -54,7 +54,7 @@ int do_tftpb (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 #ifdef DEBUG
    printf("File: %s, Func: %s, Line: %d\n", __FILE__,__FUNCTION__ , __LINE__);
-#endif   
+#endif
 	return netboot_common (TFTP, cmdtp, argc, argv);
 }
 
@@ -184,10 +184,10 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 
 	case 3:	load_addr = simple_strtoul(argv[1], NULL, 16);
 		copy_filename (BootFile, argv[2], sizeof(BootFile));
-   #ifdef DEBUG		
+   #ifdef DEBUG
       printf("load addr= 0x%08x\n", load_addr);
       printf("boot file= %s\n", BootFile);
-   #endif      
+   #endif
 		break;
 
 	default: printf ("Usage:\n%s\n", cmdtp->usage);
@@ -197,36 +197,36 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 	if ((size = NetLoop(proto)) < 0)
 		return 1;
    printf("NetBootFileXferSize= %08x\n", size);
-   
+
 	/* NetLoop ok, update environment */
 #if (CONFIG_COMMANDS & CFG_CMD_ENV)
 	netboot_update_env();
 #endif
-   
+
 	/* done if no file was loaded (no errors though) */
 	if (size == 0)
 		return 0;
 
 	/* flush cache */
 	flush_cache(load_addr, size);
-	
+
 	/* Loading ok, check if we should attempt an auto-start */
 	if (((s = getenv("autostart")) != NULL) && (strcmp(s,"yes") == 0)) {
 		char *local_args[2];
 		local_args[0] = argv[0];
 		local_args[1] = NULL;
 
-      if(modifies) {
-         setenv("autostart", "no");
-         setenv ("bootfile", BootFile);
-      #ifdef DEBUG         
-         s = getenv("bootfile");
-	      printf("save bootfile= %s\n", s);
-      #endif
-#if (CONFIG_COMMANDS & CFG_CMD_ENV)
-         saveenv();		
-#endif
-      }
+    //   if(modifies) {
+    //      setenv("autostart", "no");
+    //      setenv ("bootfile", BootFile);
+    //   #ifdef DEBUG
+    //      s = getenv("bootfile");
+	//       printf("save bootfile= %s\n", s);
+    //   #endif
+	// 	#if (CONFIG_COMMANDS & CFG_CMD_ENV)
+	// 			saveenv();
+	// 	#endif
+    //   }
 
 		printf ("Automatic boot of image at addr 0x%08lX ...\n",	load_addr);
 		rcode = do_bootm (cmdtp, 0, 1, local_args);
@@ -244,11 +244,11 @@ netboot_common (int proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 #if (CONFIG_COMMANDS & CFG_CMD_PING)
 int do_ping (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
-	
+
 
 	if (argc < 2)
 		return -1;
-    
+
 	NetPingIP = string_to_ip(argv[1]);
 	if (NetPingIP == 0) {
 		printf ("Usage:\n%s\n", cmdtp->usage);
@@ -271,6 +271,21 @@ U_BOOT_CMD(
 	"pingAddress\n"
 );
 #endif	/* CFG_CMD_PING */
+
+/* 命令行 httpd: 直接进 web 升级(同 mt7628_uboot_web); 入口另有菜单 5 / reset 键 3~8s */
+int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	printf("Start http server...\n");
+	NetLoopHttpd();
+
+	return 0;
+}
+
+U_BOOT_CMD(
+	httpd,	1,	0,	do_httpd,
+	"httpd\t - start http server\n",
+	NULL
+);
 
 #if (CONFIG_COMMANDS & CFG_CMD_CDP)
 

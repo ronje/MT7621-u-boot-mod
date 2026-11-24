@@ -519,6 +519,7 @@ void	irq_install_handler(int, interrupt_handler_t *, void *);
 void	irq_free_handler   (int);
 void	reset_timer	   (void);
 ulong	get_timer	   (ulong base);
+ulong	ticks_to_ms	   (ulong ticks);	/* CP0 Count 差值 -> ms(本树 get_timer 非 ms) */
 void	set_timer	   (ulong t);
 void	enable_interrupts  (void);
 int	disable_interrupts (void);
